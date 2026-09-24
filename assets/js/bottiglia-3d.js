@@ -221,10 +221,30 @@ function telaVetro(img, b, raggio, alt) {
   const tela = Object.assign(document.createElement("canvas"), { width: 4, height: hh });
   const g = tela.getContext("2d");
   for (let y = z; y <= f.basso; y++) {
-    g.fillStyle = `rgb(${righe.get(buone.findLast((q) => q <= y) ?? buone[0]).join()})`;
+    /* la riga libera vera, o sotto l'etichetta la media delle ultime dodici libere (una sola può essere storta) */
+    const qui = righe.has(y) ? [y] : buone.filter((q) => q < y).slice(-12);
+    const c = [0, 1, 2].map((ch) => Math.round(qui.reduce((t, q) => t + righe.get(q)[ch], 0) / qui.length));
+    g.fillStyle = `rgb(${(qui.length ? c : righe.get(buone[0])).join()})`;
     g.fillRect(0, y - z, 4, 1);
   }
   return { tela, fondo: righe.get(buone.at(-1)) };
+}
+
+/* Vino chiaro (bianco, rosato): il vetro è trasparente e tinge quello che c'è dietro, come un filtro.
+   b.vino.colore è il vino visto contro il bianco attraverso tutta la bottiglia; la luce passa due pareti, quindi
+   ogni parete ne fa metà (la radice, nella luce lineare). Sopra il livello nel collo c'è aria: resta il vetro. */
+function telaVino(b) {
+  const f = b.fronte, z = f.capsula[1], hh = f.basso - z + 1, liv = b.vino.livello;
+  const parete = (c) => c.map((v) => srgb(Math.sqrt(LIN[v])));
+  const vino = parete(b.vino.colore), aria = parete(b.vino.aria || [236, 238, 230]);
+  const tela = Object.assign(document.createElement("canvas"), { width: 4, height: hh });
+  const g = tela.getContext("2d");
+  for (let y = z; y <= f.basso; y++) {
+    const t = liscia(y, liv - 3, liv + 3);
+    g.fillStyle = `rgb(${aria.map((a, ch) => Math.round(a + (vino[ch] - a) * t)).join()})`;
+    g.fillRect(0, y - z, 4, 1);
+  }
+  return { tela, fondo: vino };
 }
 
 /* b.profilo: [mezza larghezza, riga] in pixel della foto di fronte, dal tappo al fondo.
@@ -237,12 +257,16 @@ function telaVetro(img, b, raggio, alt) {
    b.scritta: { testo, righe: [cima, base delle lettere], inizio: angolo dove comincia (gradi, 0 davanti, positivi
    a destra), arco: quanti gradi occupa }; sulla capsula ce ne sono due, a mezzo giro l'una dall'altra.
    b.lamina, b.oro: colori [r, g, b] 0–255 di capsula e scritta, letti sulle foto (la lamina dove la luce la prende
-   di fronte). Il vetro lo legge da solo, riga per riga. */
+   di fronte). Il vetro scuro lo legge da solo, riga per riga.
+   b.vino (solo vini chiari): { colore: [r, g, b] del vino contro il bianco, livello: riga del vino nel collo,
+   aria: [r, g, b] del vetro vuoto, facoltativo }: il vetro diventa trasparente. */
 export function monta(el, b) {
   /* il carattere della capsula si scarica subito, insieme alle foto, e non quando serve */
   document.fonts.load(font(100)).catch(() => {});
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  /* lo sfondo della pagina dentro la scena: il vetro trasparente tinge quello che c'è dietro, e dietro c'è questo */
+  renderer.setClearColor(new THREE.Color(getComputedStyle(el).backgroundColor), 1);
   el.append(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -286,7 +310,18 @@ export function monta(el, b) {
 
   /* vetro: prima un colore scuro qualsiasi, poi (letta la foto) il colore di ogni riga; il fondo, con la
      rientranza, prende quello dell'ultima riga */
-  const vetro = new THREE.MeshStandardMaterial({ color: 0x0c0a08, roughness: 0.05, envMap, side: THREE.DoubleSide });
+  const chiaro = !!b.vino;
+  /* vino chiaro: Lambert in moltiplicazione, così la luce passa tinta e sui fianchi (vetro visto di sbieco, più
+     spesso) si scurisce da sola; i riflessi dello studio vanno sopra, in un velo a parte */
+  const vetro = chiaro
+    ? new THREE.MeshLambertMaterial({
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.MultiplyBlending,
+        premultipliedAlpha: true
+      })
+    : new THREE.MeshStandardMaterial({ color: 0x0c0a08, roughness: 0.05, envMap, side: THREE.DoubleSide });
   const vetroFondo = vetro.clone();
   const rb = prof.at(-1)[0];
   bottiglia.add(
@@ -367,6 +402,22 @@ export function monta(el, b) {
   const cp = corpo.attributes.position;
   for (let i = 0; i < cp.count; i++) corpo.attributes.uv.setY(i, cp.getY(i) / (f0.basso - z)); /* v = altezza */
   bottiglia.add(new THREE.Mesh(corpo, vetro));
+  if (chiaro) {
+    colora(telaVino(b));
+    bottiglia.add(
+      new THREE.Mesh(
+        corpo,
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          roughness: 0.05,
+          envMap,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      )
+    );
+  }
 
   /* Le etichette sono fogli appoggiati sul vetro, tagliati lungo i bordi misurati: il bordo è quello di un oggetto
      vero e resta netto a qualsiasi ingrandimento, invece di sfumare dentro una foto allargata.
@@ -403,6 +454,8 @@ export function monta(el, b) {
     geo.computeVertexNormals();
     /* carta: opaca, prende solo le luci; alphaTest per i buchi (l'incavo dove si vede il vetro) */
     bottiglia.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: p.mappa, alphaTest: 0.5 })));
+    /* il retro della carta: col vino chiaro si vede attraverso la bottiglia */
+    if (chiaro) bottiglia.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xe9e3d6, side: THREE.BackSide })));
   };
 
   const meta = (foto, verso) => {
@@ -413,7 +466,7 @@ export function monta(el, b) {
       p.mappa.anisotropy = renderer.capabilities.getMaxAnisotropy();
       foto.etichette.forEach((q) => foglio(foto, verso, p, q));
       if (verso > 0) {
-        colora(telaVetro(img, b, raggio, alt));
+        if (!chiaro) colora(telaVetro(img, b, raggio, alt));
         telaCapsula(img, b, raggio, alt).then(capsula);
       }
     });
@@ -435,6 +488,7 @@ export function monta(el, b) {
   );
   ombra.rotation.x = -Math.PI / 2;
   ombra.position.y = 0.001 - CENTRO;
+  ombra.renderOrder = -1;
   perno.add(ombra);
 
   /* OrbitControls muove una camera immaginaria; la bottiglia fa il movimento opposto e la camera vera sta ferma */
