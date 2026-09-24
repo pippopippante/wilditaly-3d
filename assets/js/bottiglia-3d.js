@@ -10,6 +10,13 @@ const liscia = THREE.MathUtils.smoothstep;
 const LIN = Array.from({ length: 256 }, (_, i) => ((i / 255 + 0.055) / 1.055) ** 2.4);
 const srgb = (c) => 255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
 const mediana = (a) => a.sort((p, q) => p - q)[a.length >> 1] ?? 0;
+/* interpolazione lineare su punti [x, y] in ordine, prolungata oltre gli estremi */
+const interpola = (p, x) => {
+  let j = 1;
+  while (j < p.length - 1 && p[j][0] < x) j++;
+  const [x0, y0] = p[j - 1], [x1, y1] = p[j];
+  return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+};
 
 /* studio per i riflessi: fondo scuro, due pannelli alti ai lati e uno sopra */
 function studio(renderer) {
@@ -78,7 +85,7 @@ function pulisci(img, foto, raggio, alt, vetro) {
   const orig = px.slice();
   for (let y = 0; y < h; y++) {
     const [r, cx] = riga(y);
-    const qui = foto.etichette.filter(([a, b]) => y + y0 >= a && y + y0 <= b);
+    const piega = interpola(foto.curva, y + y0) * r;
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       lx[i + 3] = 255;
@@ -86,13 +93,18 @@ function pulisci(img, foto, raggio, alt, vetro) {
          Anche fuori serve il colore giusto: rimpicciolendo la foto la scheda video mescola i pixel vicini */
       const s = r > 0 ? (x + 0.5 - cx) / r : 0;
       const sb = Math.max(-1, Math.min(1, s)), ds = r > 0 ? 1 / r : 1;
-      /* Quanta parte del pixel cade dentro un'etichetta. Il bordo passa fra un pixel e l'altro e si sposta piano
-         riga dopo riga (la bottiglia nella foto è appena inclinata): deciso pixel per pixel farebbe uno scalino
-         ogni tante righe, che visto di lato, con la foto molto allargata, diventa ben visibile */
+      /* riga "dritta" del pixel: quella a cui arriva la sua linea orizzontale ai lati della sagoma */
+      const R = y + y0 - piega * Math.sqrt(1 - sb * sb);
+      /* Quanta parte del pixel cade dentro un'etichetta, in orizzontale e in verticale. Il bordo passa fra
+         un pixel e l'altro e si sposta piano (bottiglia appena inclinata, righe curve): deciso pixel per pixel
+         farebbe uno scalino ogni tante righe, che visto di lato, con la foto molto allargata, si vede */
       let dentro = 0;
       if (r)
-        for (const [, , s0, s1] of qui)
-          dentro = Math.max(dentro, Math.min(1, (Math.min(sb + ds / 2, s1) - Math.max(sb - ds / 2, s0)) / ds));
+        for (const [a, b, s0, s1] of foto.etichette) {
+          const su = Math.min(R + 0.5, b) - Math.max(R - 0.5, a);
+          if (su > 0)
+            dentro = Math.max(dentro, Math.min(1, su) * Math.min(1, (Math.min(sb + ds / 2, s1) - Math.max(sb - ds / 2, s0)) / ds));
+        }
       if (dentro <= 0) {
         vetro.forEach((c, ch) => (px[i + ch] = c));
         lx[i] = lx[i + 1] = lx[i + 2] = 255;
@@ -204,8 +216,9 @@ async function telaCapsula(img, b, raggio, alt) {
 }
 
 /* b.profilo: [mezza larghezza, riga] in pixel della foto di fronte, dal tappo al fondo.
-   b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], etichette } in pixel della propria foto;
-   etichette: [riga da, riga a, s da, s a], con s da -1 (bordo sinistro) a 1 (bordo destro).
+   b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], curva, etichette } in pixel della propria foto;
+   curva: [[riga, quanto scende al centro la linea orizzontale, in raggi], ...], misurato sui bordi dritti;
+   etichette: [riga da, riga a, s da, s a], righe prese ai lati della sagoma, s da -1 (bordo sinistro) a 1 (destro).
    b.fronte.capsula: [riga da, riga a] della capsula sulla foto di fronte.
    b.scritta: { testo, righe: [cima, base delle lettere], s: fin dove arriva la scritta, in frazione di raggio }.
    b.vetro, b.lamina, b.oro: colori [r, g, b] 0–255 di vetro, capsula e scritta, letti sulle foto. */
@@ -338,11 +351,13 @@ export function monta(el, b) {
         /* 8 px di margine: l'orlo in cima e il fondo non devono pescare lo sfondo */
         const t = Math.min(Math.max(1 - pos.getY(i) / alt, 8 / alt), 1 - 8 / alt);
         const cx = foto.cx[0] + (foto.cx[1] - foto.cx[0]) * t;
-        uv.setXY(
-          i,
-          (cx + verso * pos.getX(i) * p.k * 0.995 - p.x0) / p.w,
-          1 - (foto.alto + t * (foto.basso - foto.alto) - p.y0) / p.h
-        );
+        /* Le linee orizzontali nella foto sono curve (fotocamera vicina e più in alto, più l'obiettivo):
+           la parte verso la fotocamera scende di curva(riga) raggi rispetto ai lati. Qui si legge la foto lungo
+           la curva, così sul modello tornano dritte */
+        const X = pos.getX(i), Z = pos.getZ(i), rv = Math.hypot(X, Z);
+        const R = foto.alto + t * (foto.basso - foto.alto);
+        const piega = rv ? interpola(foto.curva, R) * p.k * verso * Z : 0; /* = curva · raggio · cos(angolo) */
+        uv.setXY(i, (cx + verso * X * p.k * 0.995 - p.x0) / p.w, 1 - (R + piega - p.y0) / p.h);
       }
       uv.needsUpdate = true;
       /* la foto prende solo le luci; sopra, un velo che aggiunge i riflessi dello studio dove c'è vetro */
