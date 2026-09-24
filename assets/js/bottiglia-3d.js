@@ -1,6 +1,6 @@
 /* Wild Italy · bottiglia 3D da due foto (fronte e retro) su fondo neutro.
    Sagoma: superficie di rotazione misurata riga per riga sulla foto di fronte.
-   Colori: ogni metà proietta i vertici sulla sua foto, ripulita dalla luce dello scatto.
+   Pezzi: corpo di vetro, capsula ridisegnata, etichette come fogli ritagliati che prendono i colori dalle foto.
    Luce: come in studio, luci e pannelli restano fermi ed è la bottiglia a girare. */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -39,23 +39,21 @@ function studio(renderer) {
   return new THREE.PMREMGenerator(renderer).fromScene(s, 0.02).texture;
 }
 
-/* Ritaglia la bottiglia dalla foto (in memoria: il file resta com'è) e la ripulisce:
-   - fuori dalle etichette è vetro: lo ridipinge del colore del vetro, riflessi e bordo grigio compresi
-     (i riflessi veri li mette lo studio, e girano giusti); la capsula è un pezzo a parte, vedi telaCapsula;
-   - toglie la luce dello scatto dalle etichette, misurata sulla foto stessa;
-   - prepara la maschera del lucido: il vetro riflette, la carta no. */
-function pulisci(img, foto, raggio, alt, vetro) {
+/* Ritaglia la bottiglia dalla foto (in memoria: il file resta com'è) e ripulisce le etichette, l'unica parte
+   della foto che si usa: vetro e capsula sono pezzi a parte.
+   - toglie la luce dello scatto, misurata sulla foto stessa;
+   - appena fuori dal bordo ripete la carta: rimpicciolendo la foto la scheda video mescola i pixel vicini,
+     e il bordo del foglio non deve prendere il colore del vetro;
+   - nelle zone "trasparente" il nero diventa buco: è vetro visto attraverso l'etichetta (l'incavo sopra). */
+function pulisci(img, foto, raggio, alt) {
   const k = (foto.basso - foto.alto) / alt;
   const rMax = raggio.max * k;
   const x0 = Math.floor(Math.min(...foto.cx) - rMax - 4), y0 = foto.alto - 4;
   const w = Math.ceil(Math.max(...foto.cx) + rMax + 4) - x0, h = foto.basso + 4 - y0;
-  const tela = () => Object.assign(document.createElement("canvas"), { width: w, height: h });
-  const c = tela();
+  const c = Object.assign(document.createElement("canvas"), { width: w, height: h });
   const g = c.getContext("2d", { willReadFrequently: true });
   g.drawImage(img, -x0, -y0);
   const dati = g.getImageData(0, 0, w, h), px = dati.data;
-  const lucido = new ImageData(w, h), lx = lucido.data;
-  const v = vetro.map((x) => LIN[x]);
   /* raggio e centro della bottiglia su una riga della tela */
   const riga = (y) => {
     const t = (y + y0 - foto.alto) / (foto.basso - foto.alto);
@@ -84,74 +82,46 @@ function pulisci(img, foto, raggio, alt, vetro) {
     return L[j] + (L[j + 1] - L[j]) * (f - j);
   };
 
-  /* Il ciclo gira su un milione e mezzo di pixel per foto: niente oggetti creati dentro, conti con i numeri
-     e basta, e le righe senza etichette (quasi tutte vetro) copiate in un colpo solo */
   const orig = px.slice();
-  const rigaVetro = new Uint8ClampedArray(w * 4), rigaLucida = new Uint8ClampedArray(w * 4).fill(255);
-  for (let x = 0; x < w * 4; x += 4) rigaVetro.set([vetro[0], vetro[1], vetro[2], 255], x);
+  const buco = foto.trasparente || [0, 0, 0, 0];
   for (let y = 0; y < h; y++) {
     const [r, cx] = riga(y);
+    if (!r) continue;
     const Y = y + y0, piega = interpola(foto.curva, Y) * r;
     /* etichette che la riga può toccare: le righe "dritte" dei suoi pixel stanno fra Y - piega e Y */
-    const lo = Math.min(Y, Y - piega) - 1, hi = Math.max(Y, Y - piega) + 1;
-    const qui = r ? foto.etichette.filter(([a, b]) => b > lo && a < hi) : [];
-    if (!qui.length) {
-      px.set(rigaVetro, y * w * 4);
-      lx.set(rigaLucida, y * w * 4);
-      continue;
-    }
-    const ds = 1 / r;
-    for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
-      lx[i + 3] = 255;
-      /* fuori dalla sagoma conta come il bordo: così il resto è vetro fino in fondo.
-         Anche fuori serve il colore giusto: rimpicciolendo la foto la scheda video mescola i pixel vicini */
+    const lo = Math.min(Y, Y - piega) - 3, hi = Math.max(Y, Y - piega) + 3;
+    const qui = foto.etichette.filter(([a, b]) => b > lo && a < hi);
+    for (let x = 0, i = y * w * 4; x < w && qui.length; x++, i += 4) {
       const s = (x + 0.5 - cx) / r;
-      const sb = s < -1 ? -1 : s > 1 ? 1 : s;
+      if (s <= -1 || s >= 1) continue;
       /* riga "dritta" del pixel: quella a cui arriva la sua linea orizzontale ai lati della sagoma */
-      const R = Y - piega * Math.sqrt(1 - sb * sb);
-      /* Quanto il pixel sta dentro un'etichetta. I bordi sfumano su un paio di pixel: il bordo passa fra un
-         pixel e l'altro e si sposta piano (etichette appena storte, righe curve), e con una sfumatura di un pixel
-         solo la scheda video lo farebbe avanzare a scatti, che visti di lato, con la foto molto allargata, si vedono */
-      let dentro = 0;
+      const R = Y - piega * Math.sqrt(1 - s * s);
+      /* il pixel di carta da usare: il suo, o appena fuori dal bordo (fino a 12 px) quello di carta più vicino */
+      let sv = 2, lontano = 12;
       for (let e = 0; e < qui.length; e++) {
-        const q = qui[e], f = (R - q[0]) / (q[1] - q[0]);
+        const q = qui[e];
+        if (R < q[0] - 2 || R > q[1] + 2) continue;
+        const f = (R - q[0]) / (q[1] - q[0]);
         const s0 = q[2].length ? q[2][0] + (q[2][1] - q[2][0]) * f : q[2];
         const s1 = q[3].length ? q[3][0] + (q[3][1] - q[3][0]) * f : q[3];
-        const su = Math.min(R - q[0], q[1] - R) / 2 + 0.5;
-        const lato = Math.min(sb - s0, s1 - sb) / ds / 2.5 + 0.5;
-        if (su > 0 && lato > 0) dentro = Math.max(dentro, Math.min(1, su) * Math.min(1, lato));
+        const sc = s < s0 ? s0 : s > s1 ? s1 : s, d = Math.abs(s - sc) * r;
+        if (d <= lontano) [lontano, sv] = [d, sc];
       }
-      if (dentro <= 0) {
-        px[i] = vetro[0];
-        px[i + 1] = vetro[1];
-        px[i + 2] = vetro[2];
-        lx[i] = lx[i + 1] = lx[i + 2] = 255;
-        continue;
+      if (sv > 1) continue;
+      const j = sv === s ? i : (y * w + Math.round(cx + sv * r - 0.5)) * 4;
+      const luce = luceScatto(sv);
+      for (let ch = 0; ch < 3; ch++) px[i + ch] = SRGB[Math.round(Math.min(1, LIN[orig[j + ch]] / luce) * 4095)];
+      if (R >= buco[0] && R <= buco[1] && s >= buco[2] && s <= buco[3]) {
+        const lum = (orig[j] + orig[j + 1] + orig[j + 2]) / 765;
+        const sat = (Math.max(orig[j], orig[j + 1], orig[j + 2]) - Math.min(orig[j], orig[j + 1], orig[j + 2])) / 255;
+        px[i + 3] = 255 * Math.max(liscia(lum, 0.1, 0.25), liscia(sat, 0.15, 0.3));
       }
-      const lum = (orig[i] + orig[i + 1] + orig[i + 2]) / 765;
-      const sat = (Math.max(orig[i], orig[i + 1], orig[i + 2]) - Math.min(orig[i], orig[i + 1], orig[i + 2])) / 255;
-      /* negli angoli delle etichette resta un po' di bordo grigio: neutro e non chiaro, diventa vetro
-         (la carta bianca e i colori dell'etichetta restano) */
-      const bordo = liscia(Math.abs(s), 0.8, 0.93) * (1 - liscia(sat, 0.05, 0.1)) * (1 - liscia(lum, 0.3, 0.4));
-      const luce = luceScatto(s);
-      let l = 0;
-      for (let ch = 0; ch < 3; ch++) {
-        const a = LIN[orig[i + ch]];
-        const pulito = Math.min(1, (a + (v[ch] - a) * bordo) / luce);
-        px[i + ch] = SRGB[Math.round((v[ch] + (pulito - v[ch]) * dentro) * 4095)]; /* sul bordo: in parte vetro */
-        l += pulito / 3;
-      }
-      /* il lucido segue la stessa sfumatura del colore: vetro lucido, carta opaca */
-      lx[i] = lx[i + 1] = lx[i + 2] = 255 * (1 - dentro * liscia(l, 0.02, 0.15));
     }
   }
   g.putImageData(dati, 0, 0);
-  const cl = tela();
-  cl.getContext("2d").putImageData(lucido, 0, 0);
-
   const mappa = new THREE.CanvasTexture(c);
   mappa.colorSpace = THREE.SRGBColorSpace;
-  return { mappa, lucido: new THREE.CanvasTexture(cl), x0, y0, w, h, k };
+  return { mappa, x0, y0, w, h, k };
 }
 
 /* Capsula rifatta da capo, tutta intera: niente giuntura fra le due foto.
@@ -230,7 +200,8 @@ async function telaCapsula(img, b, raggio, alt) {
    b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], curva, etichette } in pixel della propria foto;
    curva: [[riga, quanto scende al centro la linea orizzontale, in raggi], ...], misurato sui bordi dritti;
    etichette: [riga da, riga a, s da, s a], righe prese ai lati della sagoma, s da -1 (bordo sinistro) a 1 (destro);
-   s può essere [in cima, in fondo] per un lato storto; meglio un pixel e mezzo dentro il bordo vero della carta.
+   s può essere [in cima, in fondo] per un lato storto; meno di un pixel dentro il bordo vero della carta.
+   trasparente: [riga da, riga a, s da, s a] dove il nero dell'etichetta è vetro visto da un buco.
    b.fronte.capsula: [riga da, riga a] della capsula sulla foto di fronte.
    b.scritta: { testo, righe: [cima, base delle lettere], s: fin dove arriva la scritta, in frazione di raggio }.
    b.vetro, b.lamina, b.oro: colori [r, g, b] 0–255 di vetro, capsula e scritta, letti sulle foto. */
@@ -242,7 +213,7 @@ export function monta(el, b) {
   el.append(renderer.domElement);
 
   const scene = new THREE.Scene();
-  /* lo studio si riflette solo sul vetro: la foto prende le luci qui sotto e basta */
+  /* lo studio si riflette su vetro, capsula e scritta; la carta prende le luci qui sotto e basta */
   const envMap = studio(renderer);
   /* tanta luce diffusa e una principale morbida da sinistra in alto: al centro la carta torna come nella foto */
   scene.add(new THREE.AmbientLight(0xffffff, 1.55));
@@ -264,7 +235,7 @@ export function monta(el, b) {
     return r0 + ((r1 - r0) * (riga - y0)) / (y1 - y0 || 1);
   };
   raggio.max = Math.max(...prof.map((p) => p[0]));
-  /* la capsula è un pezzo a parte; sotto, le due metà prese dalle foto.
+  /* la capsula è un pezzo a parte; sotto, il corpo di vetro.
      Punti dal fondo verso l'alto, altrimenti le normali guardano dentro */
   const z = f0.capsula[1], rz = raggio((z - f0.alto) / alt);
   const V = ([r, riga]) => new THREE.Vector2(r, f0.basso - riga);
@@ -282,7 +253,7 @@ export function monta(el, b) {
 
   const vetro = new THREE.MeshStandardMaterial({
     color: new THREE.Color().setRGB(...b.vetro.map((x) => x / 255), THREE.SRGBColorSpace),
-    roughness: 0.06,
+    roughness: 0.05,
     envMap,
     side: THREE.DoubleSide
   });
@@ -354,49 +325,53 @@ export function monta(el, b) {
     bottiglia.add(tappo);
   };
 
-  const meta = (foto, phi, verso) => {
-    const geo = new THREE.LatheGeometry(puntiVetro, 96, phi, Math.PI);
+  /* Il corpo è vetro e basta, tutto intero: niente giuntura fra le due foto. */
+  bottiglia.add(new THREE.Mesh(new THREE.LatheGeometry(puntiVetro, 128), vetro));
+
+  /* Le etichette sono fogli appoggiati sul vetro, tagliati lungo i bordi misurati: il bordo è quello di un oggetto
+     vero e resta netto a qualsiasi ingrandimento, invece di sfumare dentro una foto allargata.
+     Ogni foglio prende i colori dalla sua foto, leggendola lungo le curve della prospettiva. */
+  const foglio = (foto, verso, p, q) => {
+    const nR = 48, nC = 64, pos = [], uv = [], idx = [];
+    for (let i = 0; i <= nR; i++) {
+      const f = i / nR, R = q[0] + (q[1] - q[0]) * f;
+      const s0 = q[2].length ? q[2][0] + (q[2][1] - q[2][0]) * f : q[2];
+      const s1 = q[3].length ? q[3][0] + (q[3][1] - q[3][0]) * f : q[3];
+      const t = (R - foto.alto) / (foto.basso - foto.alto), r = raggio(t);
+      const cx = foto.cx[0] + (foto.cx[1] - foto.cx[0]) * t, piega = interpola(foto.curva, R) * r * p.k;
+      for (let j = 0; j <= nC; j++) {
+        const s = s0 + ((s1 - s0) * j) / nC, cos = Math.sqrt(1 - s * s);
+        /* un filo sopra il vetro (0,2%), di spessore nullo come la carta */
+        pos.push(verso * r * 1.002 * s, alt * (1 - t), verso * r * 1.002 * cos);
+        uv.push((cx + s * r * p.k - p.x0) / p.w, 1 - (R + piega * cos - p.y0) / p.h);
+      }
+    }
+    for (let i = 0; i < nR; i++)
+      for (let j = 0; j < nC; j++) {
+        const a = i * (nC + 1) + j, b = a + nC + 1;
+        idx.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    /* carta: opaca, prende solo le luci; alphaTest per i buchi (l'incavo dove si vede il vetro) */
+    bottiglia.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: p.mappa, alphaTest: 0.5 })));
+  };
+
+  const meta = (foto, verso) => {
     const img = new Image();
     img.src = foto.src;
     img.decode().then(() => {
-      const p = pulisci(img, foto, raggio, alt, b.vetro);
-      const pos = geo.attributes.position, uv = geo.attributes.uv;
-      for (let i = 0; i < pos.count; i++) {
-        /* 8 px di margine: l'orlo in cima e il fondo non devono pescare lo sfondo */
-        const t = Math.min(Math.max(1 - pos.getY(i) / alt, 8 / alt), 1 - 8 / alt);
-        const cx = foto.cx[0] + (foto.cx[1] - foto.cx[0]) * t;
-        /* Le linee orizzontali nella foto sono curve (fotocamera vicina e più in alto, più l'obiettivo):
-           la parte verso la fotocamera scende di curva(riga) raggi rispetto ai lati. Qui si legge la foto lungo
-           la curva, così sul modello tornano dritte */
-        const X = pos.getX(i), Z = pos.getZ(i), rv = Math.hypot(X, Z);
-        const R = foto.alto + t * (foto.basso - foto.alto);
-        const piega = rv ? interpola(foto.curva, R) * p.k * verso * Z : 0; /* = curva · raggio · cos(angolo) */
-        uv.setXY(i, (cx + verso * X * p.k * 0.995 - p.x0) / p.w, 1 - (R + piega - p.y0) / p.h);
-      }
-      uv.needsUpdate = true;
-      /* la foto prende solo le luci; sopra, un velo che aggiunge i riflessi dello studio dove c'è vetro */
-      bottiglia.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: p.mappa })));
-      bottiglia.add(
-        new THREE.Mesh(
-          geo,
-          new THREE.MeshStandardMaterial({
-            color: 0x000000,
-            roughness: 0.05,
-            envMap,
-            alphaMap: p.lucido,
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            polygonOffset: true,
-            polygonOffsetFactor: -1
-          })
-        )
-      );
+      const p = pulisci(img, foto, raggio, alt);
+      p.mappa.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      foto.etichette.forEach((q) => foglio(foto, verso, p, q));
       if (verso > 0) telaCapsula(img, b, raggio, alt).then(capsula);
     });
   };
-  meta(b.fronte, -Math.PI / 2, 1);
-  meta(b.retro, Math.PI / 2, -1); /* la foto del retro è girata: la sua destra è la nostra sinistra */
+  meta(b.fronte, 1);
+  meta(b.retro, -1); /* la foto del retro è girata: la sua destra è la nostra sinistra */
 
   /* ombra morbida a terra */
   const c = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
