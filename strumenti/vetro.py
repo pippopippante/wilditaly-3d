@@ -15,8 +15,10 @@ from PIL import Image
 BOTTIGLIE = {
     # nostra bottiglia (righe della foto di fronte): fondo capsula, inizio corpo dritto, inizio tallone, piede
     # foto su bianco: fondo capsula, inizio corpo, righe del corpo libero sopra l'etichetta, inizio tallone, piede, centro
+    # nero (facoltativo): righe della foto su bianco dove il collo si allarga e il vetro spesso fa lente e viene nero;
+    # visto di lato è una riga, ma dall'alto la spalla si vede di piatto e diventa un anello: lì si sfuma da sopra a sotto
     "grechetto": dict(nostra=(362, 796, 1172, 1198), bianco=(240, 562, (470, 515), 885, 915), cx=500.5),
-    "vignarosa": dict(nostra=(370, 693, 1149, 1212), bianco=(237, 386, (390, 432), 881, 912), cx=496),
+    "vignarosa": dict(nostra=(370, 693, 1149, 1212), bianco=(237, 386, (390, 432), 881, 912), cx=496, nero=(271, 289)),
 }
 N = 64  # colonne: da bordo sinistro a bordo destro
 
@@ -46,6 +48,13 @@ def mappa(foto, B):
 
     zc, corpo, tallone, piede = B["nostra"]
     zp, corpoP, (c0, c1), talloneP, piedeP = B["bianco"]
+    def riga(yp):
+        n = B.get("nero")
+        if n and n[0] < yp < n[1]:
+            w = (yp - n[0]) / (n[1] - n[0])
+            return profilo(n[0]) * (1 - w) + profilo(n[1]) * w
+        return profilo(int(round(yp)))
+
     corpoMedio = np.median(np.array([profilo(y) for y in range(c0, c1 + 1, 3)]), 0)
     righe = []
     for y in range(zc, piede + 1):
@@ -53,7 +62,7 @@ def mappa(foto, B):
             yp = zp + (y - zc) / (corpo - zc) * (corpoP - zp)
             # la spalla sfuma nel profilo del corpo, senza scalino
             w = float(np.clip((yp - (c0 - 40)) / 40, 0, 1))
-            righe.append(corpoMedio if w >= 1 else profilo(int(round(min(yp, c0)))) * (1 - w) + corpoMedio * w)
+            righe.append(corpoMedio if w >= 1 else riga(min(yp, c0)) * (1 - w) + corpoMedio * w)
         elif y < tallone:
             righe.append(corpoMedio)
         else:
