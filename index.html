@@ -28,8 +28,16 @@
 
   /* Napo's rosso: misure prese sulle due foto (2000 × 2666 px) */
   monta(document.querySelector("[data-3d]"), {
-    fronte: { src: "assets/img/napos-napolini-1.jpg", alto: 190, basso: 2480, cx: [967, 958] },
-    retro: { src: "assets/img/napos-napolini-2.jpg", alto: 190, basso: 2456, cx: [1018.5, 1018.5] },
+    fronte: {
+      src: "assets/img/napos-napolini-1.jpg", alto: 190, basso: 2480, cx: [974.5, 958],
+      /* capsula, medaglione che sporge sopra l'etichetta, etichetta */
+      etichette: [[186, 651, -1, 1], [1228, 1320, -0.35, 0.35], [1310, 2342, -0.94, 0.945]]
+    },
+    retro: {
+      src: "assets/img/napos-napolini-2.jpg", alto: 190, basso: 2456, cx: [1018.5, 1018.5],
+      /* capsula, retroetichetta con la fascia nera NAPOLINI a destra */
+      etichette: [[186, 643, -1, 1], [1584, 2184, -0.875, 0.89]]
+    },
     vetro: [4, 5, 7],
     profilo: [
       [73, 190], [94, 195], [99.5, 200], [105.5, 210], [107, 220], [108.5, 235], [110, 500],

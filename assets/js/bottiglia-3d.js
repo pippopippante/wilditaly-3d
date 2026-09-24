@@ -6,7 +6,6 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const CENTRO = 0.47; /* altezza del perno di rotazione, con la bottiglia alta 1 */
-const Q = Math.PI / 4, PSI = Math.asin(0.9);
 const liscia = THREE.MathUtils.smoothstep;
 const LIN = Array.from({ length: 256 }, (_, i) => ((i / 255 + 0.055) / 1.055) ** 2.4);
 const srgb = (c) => 255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
@@ -30,9 +29,10 @@ function studio(renderer) {
   return new THREE.PMREMGenerator(renderer).fromScene(s, 0.02).texture;
 }
 
-/* Ritaglia la bottiglia dalla foto e la ripulisce:
-   - toglie la luce dello scatto, misurata sulla foto stessa;
-   - sul bordo il vetro mostra lo sfondo grigio, che girando finirebbe in primo piano: lì diventa vetro;
+/* Ritaglia la bottiglia dalla foto (in memoria: il file resta com'è) e la ripulisce:
+   - fuori da etichette e capsula è vetro: lo ridipinge del colore del vetro, riflessi e bordo grigio compresi
+     (i riflessi veri li mette lo studio, e girano giusti);
+   - toglie la luce dello scatto da etichette e capsula, misurata sulla foto stessa;
    - prepara la maschera del lucido: il vetro riflette, la carta no. */
 function pulisci(img, foto, raggio, alt, vetro) {
   const k = (foto.basso - foto.alto) / alt;
@@ -74,21 +74,34 @@ function pulisci(img, foto, raggio, alt, vetro) {
     return L[j] + (L[j + 1] - L[j]) * (f - j);
   };
 
+  const orig = px.slice();
   for (let y = 0; y < h; y++) {
     const [r, cx] = riga(y);
+    const qui = foto.etichette.filter(([a, b]) => y + y0 >= a && y + y0 <= b);
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       lx[i + 3] = 255;
-      const s = r > 0 ? (x + 0.5 - cx) / r : 1;
-      if (Math.abs(s) >= 1) continue;
-      const lum = (px[i] + px[i + 1] + px[i + 2]) / 765;
-      const sat = (Math.max(px[i], px[i + 1], px[i + 2]) - Math.min(px[i], px[i + 1], px[i + 2])) / 255;
-      /* bordo: grigio neutro e non chiaro (la carta resta, i colori dell'etichetta pure) */
-      const bordo = liscia(Math.abs(s), 0.8, 0.93) * (1 - liscia(sat, 0.08, 0.18)) * (1 - liscia(lum, 0.45, 0.65));
-      const luce = luceScatto(s);
+      /* fuori dalla sagoma conta come il bordo: così la capsula arriva fino in fondo e il resto è vetro.
+         Anche fuori serve il colore giusto: rimpicciolendo la foto la scheda video mescola i pixel vicini */
+      const s = r > 0 ? (x + 0.5 - cx) / r : 0;
+      const sb = Math.max(-1, Math.min(1, s));
+      if (!r || !qui.some(([, , s0, s1]) => sb >= s0 && sb <= s1)) {
+        vetro.forEach((c, ch) => (px[i + ch] = c));
+        lx[i] = lx[i + 1] = lx[i + 2] = 255;
+        continue;
+      }
+      /* oltre il 93% del raggio la foto vede il bordo di taglio: si ripete l'ultima colonna buona */
+      const sv = Math.max(-0.93, Math.min(0.93, s));
+      const j = sv === s ? i : (y * w + Math.round(cx + sv * r - 0.5)) * 4;
+      const lum = (orig[j] + orig[j + 1] + orig[j + 2]) / 765;
+      const sat = (Math.max(orig[j], orig[j + 1], orig[j + 2]) - Math.min(orig[j], orig[j + 1], orig[j + 2])) / 255;
+      /* negli angoli delle etichette resta un po' di bordo grigio: neutro e non chiaro, diventa vetro
+         (la carta bianca e i colori dell'etichetta restano) */
+      const bordo = liscia(Math.abs(sv), 0.8, 0.93) * (1 - liscia(sat, 0.05, 0.1)) * (1 - liscia(lum, 0.3, 0.4));
+      const luce = luceScatto(sv);
       let l = 0;
       for (let ch = 0; ch < 3; ch++) {
-        const a = LIN[px[i + ch]];
+        const a = LIN[orig[j + ch]];
         const pulito = Math.min(1, (a + (v[ch] - a) * bordo) / luce);
         px[i + ch] = srgb(pulito);
         l += pulito / 3;
@@ -110,7 +123,8 @@ function pulisci(img, foto, raggio, alt, vetro) {
 }
 
 /* b.profilo: [mezza larghezza, riga] in pixel della foto di fronte, dal tappo al fondo.
-   b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso] } in pixel della propria foto.
+   b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], etichette } in pixel della propria foto;
+   etichette: [riga da, riga a, s da, s a] per etichette e capsula, con s da -1 (bordo sinistro) a 1 (bordo destro).
    b.vetro: colore del vetro [r, g, b] 0–255, letto sulla foto. */
 export function monta(el, b) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -184,13 +198,9 @@ export function monta(el, b) {
         /* 8 px di margine: l'orlo in cima e il fondo non devono pescare lo sfondo */
         const t = Math.min(Math.max(1 - pos.getY(i) / alt, 8 / alt), 1 - 8 / alt);
         const cx = foto.cx[0] + (foto.cx[1] - foto.cx[0]) * t;
-        /* angolo rispetto al centro della foto. Fino a 45° si legge la foto così com'è; da 45° alla giuntura
-           si legge solo fino al 90% del raggio (64°): oltre, la foto vede il vetro di taglio e lo sfondo */
-        const X = verso * pos.getX(i), Z = verso * pos.getZ(i);
-        const a = Math.atan2(X, Z), m = Math.abs(a) <= Q ? a : Math.sign(a) * (Q + ((Math.abs(a) - Q) * (PSI - Q)) / Q);
         uv.setXY(
           i,
-          (cx + Math.hypot(X, Z) * Math.sin(m) * p.k - p.x0) / p.w,
+          (cx + verso * pos.getX(i) * p.k * 0.995 - p.x0) / p.w,
           1 - (foto.alto + t * (foto.basso - foto.alto) - p.y0) / p.h
         );
       }
