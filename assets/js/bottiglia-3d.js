@@ -9,6 +9,7 @@ const CENTRO = 0.47; /* altezza del perno di rotazione, con la bottiglia alta 1 
 const liscia = THREE.MathUtils.smoothstep;
 const LIN = Array.from({ length: 256 }, (_, i) => ((i / 255 + 0.055) / 1.055) ** 2.4);
 const srgb = (c) => 255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
+const mediana = (a) => a.sort((p, q) => p - q)[a.length >> 1] ?? 0;
 
 /* studio per i riflessi: fondo scuro, due pannelli alti ai lati e uno sopra */
 function studio(renderer) {
@@ -30,9 +31,9 @@ function studio(renderer) {
 }
 
 /* Ritaglia la bottiglia dalla foto (in memoria: il file resta com'è) e la ripulisce:
-   - fuori da etichette e capsula è vetro: lo ridipinge del colore del vetro, riflessi e bordo grigio compresi
-     (i riflessi veri li mette lo studio, e girano giusti);
-   - toglie la luce dello scatto da etichette e capsula, misurata sulla foto stessa;
+   - fuori dalle etichette è vetro: lo ridipinge del colore del vetro, riflessi e bordo grigio compresi
+     (i riflessi veri li mette lo studio, e girano giusti); la capsula è un pezzo a parte, vedi telaCapsula;
+   - toglie la luce dello scatto dalle etichette, misurata sulla foto stessa;
    - prepara la maschera del lucido: il vetro riflette, la carta no. */
 function pulisci(img, foto, raggio, alt, vetro) {
   const k = (foto.basso - foto.alto) / alt;
@@ -81,7 +82,7 @@ function pulisci(img, foto, raggio, alt, vetro) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       lx[i + 3] = 255;
-      /* fuori dalla sagoma conta come il bordo: così la capsula arriva fino in fondo e il resto è vetro.
+      /* fuori dalla sagoma conta come il bordo: così il resto è vetro fino in fondo.
          Anche fuori serve il colore giusto: rimpicciolendo la foto la scheda video mescola i pixel vicini */
       const s = r > 0 ? (x + 0.5 - cx) / r : 0;
       const sb = Math.max(-1, Math.min(1, s));
@@ -115,17 +116,88 @@ function pulisci(img, foto, raggio, alt, vetro) {
 
   const mappa = new THREE.CanvasTexture(c);
   mappa.colorSpace = THREE.SRGBColorSpace;
-  /* colore della capsula, per il disco in cima */
-  const yc = Math.round(foto.alto + 0.05 * (foto.basso - foto.alto) - y0);
-  const ic = (yc * w + Math.round(foto.cx[0] - x0)) * 4;
-  const capsula = new THREE.Color().setRGB(px[ic] / 255, px[ic + 1] / 255, px[ic + 2] / 255, THREE.SRGBColorSpace);
-  return { mappa, lucido: new THREE.CanvasTexture(cl), capsula, x0, y0, w, h, k };
+  return { mappa, lucido: new THREE.CanvasTexture(cl), x0, y0, w, h, k };
+}
+
+/* Capsula rifatta da capo, tutta intera: niente giuntura fra le due foto.
+   - Lamina rossa riga per riga, dalla foto di fronte: la mediana del rosso puro al centro di ogni riga, così restano
+     anelli e bordini; lampi, bordi scuri e lettere restano fuori. Le righe della scritta, con le ombrine della
+     stampa in rilievo, prendono il rosso delle righe appena sopra e sotto. Tutto portato al rosso misurato b.lamina.
+   - La scritta ridisegnata col carattere, in oro, davanti e dietro. Nella foto le lettere sono strette e alte:
+     il carattere viene stretto fino a riempire lo stesso arco. */
+async function telaCapsula(img, b, raggio, alt) {
+  const f = b.fronte, [a, z] = f.capsula, sc = b.scritta, [t0, t1] = sc.righe;
+  const S = 4; /* pixel della tela per pixel della foto */
+  const r = raggio(((a + z) / 2 - f.alto) / alt);
+  const W = Math.round(2 * Math.PI * r * S), H = (z - a) * S;
+  const cx = (y) => f.cx[0] + ((f.cx[1] - f.cx[0]) * (y - f.alto)) / (f.basso - f.alto);
+
+  const xa = Math.floor(Math.min(cx(a), cx(z)) - r), ww = Math.ceil(2 * r) + 20;
+  const lettura = Object.assign(document.createElement("canvas"), { width: ww, height: z - a + 1 });
+  const lg = lettura.getContext("2d", { willReadFrequently: true });
+  lg.drawImage(img, -xa, -a);
+  const px = lg.getImageData(0, 0, ww, z - a + 1).data;
+  const righe = new Map();
+  for (let y = a; y <= z; y++) {
+    if (y >= t0 - 6 && y <= t1 + 6) continue;
+    const cs = [[], [], []], c = cx(y) - xa;
+    for (let x = Math.ceil(c - 0.6 * r); x < c + 0.6 * r; x++) {
+      const i = ((y - a) * ww + x) * 4;
+      /* rosso puro: fuori le lettere (oro) e i lampi (rosa) */
+      if (px[i + 1] < 0.36 * px[i]) for (let ch = 0; ch < 3; ch++) cs[ch].push(px[i + ch]);
+    }
+    if (cs[0].length) righe.set(y, cs.map((v) => LIN[mediana(v)]));
+  }
+  const buone = [...righe.keys()];
+  const media = [0, 1, 2].map((ch) => mediana(buone.map((y) => righe.get(y)[ch])));
+
+  const tela = Object.assign(document.createElement("canvas"), { width: W, height: H });
+  const g = tela.getContext("2d");
+  for (let y = a; y < z; y++) {
+    const su = buone.findLast((q) => q <= y) ?? buone[0], giu = buone.find((q) => q >= y) ?? su;
+    const q = su === giu ? 0 : (y - su) / (giu - su);
+    const lin = righe.get(su).map((v, ch) => ((v + (righe.get(giu)[ch] - v) * q) * LIN[b.lamina[ch]]) / media[ch]);
+    g.fillStyle = `rgb(${lin.map((v) => Math.round(srgb(Math.min(1, v)))).join()})`;
+    g.fillRect(0, (y - a) * S, W, S);
+  }
+
+  const font = (n) => `700 ${n}px "EB Garamond", Georgia, serif`;
+  await document.fonts.load(font(100)).catch(() => {});
+  g.font = font(100);
+  g.font = font((100 * (t1 - t0) * S) / g.measureText("N").actualBoundingBoxAscent);
+  const lettere = [...sc.testo], larghe = lettere.map((l) => g.measureText(l).width);
+  const spazio = 0.1 * larghe[0]; /* lettere quasi attaccate, come sulla capsula */
+  const naturale = larghe.reduce((p, q) => p + q, 0) + spazio * (lettere.length - 1);
+  const arco = 2 * Math.asin(sc.s) * r * S;
+  /* le stesse lettere anche su una maschera a parte: lì sopra va lo strato di metallo dorato */
+  const maschera = Object.assign(document.createElement("canvas"), { width: W, height: H });
+  const m = maschera.getContext("2d");
+  m.fillRect(0, 0, W, H);
+  for (const [ctx, colore] of [[g, `rgb(${b.oro.join()})`], [m, "#fff"]]) {
+    ctx.font = g.font;
+    ctx.fillStyle = colore;
+    for (const centro of [W / 2, 0, W]) {
+      /* davanti; dietro sta a cavallo del bordo della tela, quindi due mezze volte */
+      ctx.save();
+      ctx.translate(centro - arco / 2, (t1 - a) * S);
+      ctx.scale(arco / naturale, 1);
+      let x = 0;
+      lettere.forEach((l, i) => {
+        ctx.fillText(l, x, 0);
+        x += larghe[i] + spazio;
+      });
+      ctx.restore();
+    }
+  }
+  return { tela, maschera };
 }
 
 /* b.profilo: [mezza larghezza, riga] in pixel della foto di fronte, dal tappo al fondo.
    b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], etichette } in pixel della propria foto;
-   etichette: [riga da, riga a, s da, s a] per etichette e capsula, con s da -1 (bordo sinistro) a 1 (bordo destro).
-   b.vetro: colore del vetro [r, g, b] 0–255, letto sulla foto. */
+   etichette: [riga da, riga a, s da, s a], con s da -1 (bordo sinistro) a 1 (bordo destro).
+   b.fronte.capsula: [riga da, riga a] della capsula sulla foto di fronte.
+   b.scritta: { testo, righe: [cima, base delle lettere], s: fin dove arriva la scritta, in frazione di raggio }.
+   b.vetro, b.lamina, b.oro: colori [r, g, b] 0–255 di vetro, capsula e scritta, letti sulle foto. */
 export function monta(el, b) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -154,11 +226,12 @@ export function monta(el, b) {
     return r0 + ((r1 - r0) * (riga - y0)) / (y1 - y0 || 1);
   };
   raggio.max = Math.max(...prof.map((p) => p[0]));
-  /* dal fondo verso l'alto, altrimenti le normali guardano dentro */
-  const punti = prof
-    .slice()
-    .reverse()
-    .map(([r, riga]) => new THREE.Vector2(r, f0.basso - riga));
+  /* la capsula è un pezzo a parte; sotto, le due metà prese dalle foto.
+     Punti dal fondo verso l'alto, altrimenti le normali guardano dentro */
+  const z = f0.capsula[1], rz = raggio((z - f0.alto) / alt);
+  const V = ([r, riga]) => new THREE.Vector2(r, f0.basso - riga);
+  const puntiVetro = [...prof.filter(([, y]) => y > z).reverse(), [rz, z]].map(V);
+  const puntiCapsula = [[rz, z], ...prof.filter(([, y]) => y < z).reverse()].map(V);
 
   /* la bottiglia gira attorno al perno; ombra e bottiglia girano insieme */
   const perno = new THREE.Group();
@@ -187,8 +260,64 @@ export function monta(el, b) {
     )
   );
 
+  /* capsula: tela disegnata da capo (u = angolo, v = altezza), lucida a metà; in cima un disco dello stesso rosso */
+  const capsula = ({ tela, maschera }) => {
+    const geo = new THREE.LatheGeometry(puntiCapsula, 128, -Math.PI, 2 * Math.PI); /* u = 0,5 davanti */
+    const pos = geo.attributes.position, uv = geo.attributes.uv;
+    for (let i = 0; i < pos.count; i++) uv.setY(i, (pos.getY(i) - (f0.basso - z)) / (z - f0.capsula[0]));
+    const mappa = new THREE.CanvasTexture(tela);
+    mappa.colorSpace = THREE.SRGBColorSpace;
+    mappa.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    bottiglia.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: mappa })));
+    bottiglia.add(
+      new THREE.Mesh(
+        geo,
+        new THREE.MeshPhysicalMaterial({
+          color: 0x000000,
+          roughness: 0.2,
+          envMap,
+          transparent: true,
+          opacity: 0.4,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1
+        })
+      )
+    );
+    /* scritta in metallo dorato: riflette lo studio tinto d'oro, quindi è brunita dove guarda il fondo scuro
+       e brilla dove prende un pannello, e il lampo scorre sulle lettere mentre la bottiglia gira */
+    const lettere = new THREE.CanvasTexture(maschera);
+    lettere.anisotropy = mappa.anisotropy;
+    bottiglia.add(
+      new THREE.Mesh(
+        geo,
+        new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setRGB(...b.oro.map((x) => x / 255), THREE.SRGBColorSpace),
+          metalness: 0.9,
+          roughness: 0.3,
+          envMap,
+          alphaMap: lettere,
+          transparent: true,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -2
+        })
+      )
+    );
+    const tappo = new THREE.Mesh(
+      new THREE.CircleGeometry(prof[0][0], 48),
+      new THREE.MeshLambertMaterial({
+        color: new THREE.Color().setRGB(...b.lamina.map((x) => x / 255), THREE.SRGBColorSpace)
+      })
+    );
+    tappo.rotation.x = -Math.PI / 2;
+    tappo.position.y = alt;
+    bottiglia.add(tappo);
+  };
+
   const meta = (foto, phi, verso) => {
-    const geo = new THREE.LatheGeometry(punti, 96, phi, Math.PI);
+    const geo = new THREE.LatheGeometry(puntiVetro, 96, phi, Math.PI);
     const img = new Image();
     img.src = foto.src;
     img.decode().then(() => {
@@ -223,15 +352,7 @@ export function monta(el, b) {
           })
         )
       );
-      if (verso > 0) {
-        const tappo = new THREE.Mesh(
-          new THREE.CircleGeometry(prof[0][0], 48),
-          new THREE.MeshLambertMaterial({ color: p.capsula }) /* luce come il resto della capsula */
-        );
-        tappo.rotation.x = -Math.PI / 2;
-        tappo.position.y = alt;
-        bottiglia.add(tappo);
-      }
+      if (verso > 0) telaCapsula(img, b, raggio, alt).then(capsula);
     });
   };
   meta(b.fronte, -Math.PI / 2, 1);

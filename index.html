@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Prova 3D · Wild Italy</title>
 <meta name="robots" content="noindex">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/wild.css">
 <style>
   .p3d{height:100svh;background:var(--paper);cursor:grab;touch-action:none}
@@ -30,15 +31,19 @@
   monta(document.querySelector("[data-3d]"), {
     fronte: {
       src: "assets/img/napos-napolini-1.jpg", alto: 190, basso: 2480, cx: [974.5, 958],
-      /* capsula, medaglione che sporge sopra l'etichetta, etichetta */
-      etichette: [[186, 651, -1, 1], [1228, 1320, -0.35, 0.35], [1310, 2342, -0.94, 0.945]]
+      capsula: [190, 651],
+      /* medaglione che sporge sopra l'etichetta, etichetta */
+      etichette: [[1228, 1320, -0.35, 0.35], [1310, 2342, -0.94, 0.945]]
     },
     retro: {
       src: "assets/img/napos-napolini-2.jpg", alto: 190, basso: 2456, cx: [1018.5, 1018.5],
-      /* capsula, retroetichetta con la fascia nera NAPOLINI a destra */
-      etichette: [[186, 643, -1, 1], [1584, 2184, -0.875, 0.89]]
+      /* retroetichetta con la fascia nera NAPOLINI a destra */
+      etichette: [[1584, 2184, -0.875, 0.89]]
     },
     vetro: [4, 5, 7],
+    oro: [185, 150, 115], /* scritta sulla capsula: il corpo delle lettere, fra i bordi sfumati nel rosso e i lampi */
+    scritta: { testo: "NAPOLINI", righe: [561, 597], s: 0.9 },
+    lamina: [135, 32, 43], /* capsula dove la luce la prende di fronte, media delle due foto: (127, 30, 40) e (143, 35, 46) */
     profilo: [
       [73, 190], [94, 195], [99.5, 200], [105.5, 210], [107, 220], [108.5, 235], [110, 500],
       [111.5, 760], [113.5, 780], [119.5, 800], [130, 820], [150.5, 840], [178, 860], [200.5, 880],
