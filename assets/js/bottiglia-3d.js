@@ -430,9 +430,6 @@ export function monta(el, b) {
   controls.maxDistance = 3.5;
   controls.minPolarAngle = 0.03;
   controls.maxPolarAngle = Math.PI - 0.03;
-  controls.autoRotate = true;
-  controls.autoRotateSpeed = 1.6;
-  controls.addEventListener("start", () => (controls.autoRotate = false));
 
   new ResizeObserver(() => {
     const { clientWidth: w, clientHeight: h } = el;
