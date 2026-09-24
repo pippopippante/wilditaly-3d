@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!-- Wild Italy · prova della bottiglia 3D, non collegata al resto del sito -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prova 3D · Wild Italy</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="assets/css/wild.css">
+<style>
+  .p3d{height:100svh;background:var(--paper);cursor:grab;touch-action:none}
+  .p3d:active{cursor:grabbing}
+  .p3d__nota{position:fixed;left:0;right:0;top:20px;text-align:center;pointer-events:none}
+</style>
+<script type="importmap">
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  } }
+</script>
+</head>
+<body>
+<div class="p3d" data-3d></div>
+<p class="meta p3d__nota">Trascina per girare la bottiglia · rotella o due dita per avvicinarti</p>
+
+<script type="module">
+  import { monta } from "./assets/js/bottiglia-3d.js";
+
+  /* Napo's rosso: misure prese sulle due foto (2000 × 2666 px) */
+  monta(document.querySelector("[data-3d]"), {
+    fronte: { src: "assets/img/napos-napolini-1.jpg", alto: 190, basso: 2480, cx: [967, 958] },
+    retro: { src: "assets/img/napos-napolini-2.jpg", alto: 190, basso: 2456, cx: [1018.5, 1018.5] },
+    vetro: [4, 5, 7],
+    profilo: [
+      [73, 190], [94, 195], [99.5, 200], [105.5, 210], [107, 220], [108.5, 235], [110, 500],
+      [111.5, 760], [113.5, 780], [119.5, 800], [130, 820], [150.5, 840], [178, 860], [200.5, 880],
+      [219.5, 900], [235, 920], [248, 940], [259, 960], [267.5, 980], [274.5, 1000], [279.5, 1020],
+      [283.5, 1040], [285.5, 1060], [286, 1080], [284, 1700], [281, 2380], [281.5, 2404], [277, 2420],
+      [272.5, 2436], [267, 2452], [258, 2468], [253.5, 2480]
+    ]
+  });
+</script>
+</body>
+</html>

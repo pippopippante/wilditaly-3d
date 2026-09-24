@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Wild Italy: il marchio (esagono con le montagne) ridisegnato da particolare_logo.jpeg -->
+  <rect width="64" height="64" rx="14" fill="#7A1E2A"/>
+  <g fill="none" stroke="#F7EFDF" stroke-width="4">
+    <path d="M32 10 51.05 21v22L32 54 12.95 43V21z"/>
+    <path d="M15 39 25.2 25.7l4.1 4.5-3.4 3.6 9.9-11.7L50 38.9" stroke-width="3.6"/>
+  </g>
+</svg>
