@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const CENTRO = 0.47; /* altezza del perno di rotazione, con la bottiglia alta 1 */
+const VELO = 0.5; /* vini chiari: quanto il vetro copre quello che c'è dietro, 0 trasparente del tutto, 1 opaco */
 const liscia = THREE.MathUtils.smoothstep;
 const LIN = Array.from({ length: 256 }, (_, i) => ((i / 255 + 0.055) / 1.055) ** 2.4);
 const srgb = (c) => 255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
@@ -235,17 +236,18 @@ function telaVetro(img, b, raggio, alt) {
    punto è proprio quanto la bottiglia lascia passare, col vino più carico al centro, i fianchi chiari e i riflessi
    dello studio. In orizzontale la mappa va dal bordo sinistro al bordo destro come li vede la camera, in verticale
    dal fondo della capsula al piede; la bottiglia è tonda, quindi l'aspetto vale da qualsiasi lato la si guardi. */
-function vetroChiaro(src) {
+function vetroChiaro(src, densita = 1) {
   const mappa = new THREE.TextureLoader().load(src);
   mappa.colorSpace = THREE.SRGBColorSpace;
   return new THREE.ShaderMaterial({
-    uniforms: { mappa: { value: mappa } },
+    uniforms: { mappa: { value: mappa }, densita: { value: densita } },
     vertexShader: `varying vec3 vN; varying float vY;
       void main() { vN = normalMatrix * normal; vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     /* la x della normale vista dalla camera dice dov'è il punto fra bordo sinistro (-1) e bordo destro (1) */
-    fragmentShader: `uniform sampler2D mappa; varying vec3 vN; varying float vY;
+    fragmentShader: `uniform sampler2D mappa; uniform float densita; varying vec3 vN; varying float vY;
       void main() {
-        gl_FragColor = texture2D(mappa, vec2(clamp(normalize(vN).x, -0.999, 0.999) * 0.5 + 0.5, vY));
+        vec3 c = texture2D(mappa, vec2(clamp(normalize(vN).x, -0.999, 0.999) * 0.5 + 0.5, vY)).rgb;
+        gl_FragColor = vec4(pow(c, vec3(densita)), 1.0);
         #include <colorspace_fragment>
       }`,
     transparent: true,
@@ -267,14 +269,16 @@ function vetroChiaro(src) {
    b.lamina, b.oro: colori [r, g, b] 0–255 di capsula e scritta, letti sulle foto (la lamina dove la luce la prende
    di fronte). Il vetro scuro lo legge da solo, riga per riga.
    b.vetro (solo vini chiari): la mappa dell'aspetto del vetro, fatta da strumenti/vetro.py: il vetro diventa
-   trasparente. */
+   trasparente. b.densita, facoltativo: quanto vino attraversa la luce rispetto alla foto della cantina, che è in
+   controluce e fa il vino più chiaro che nelle nostre foto; 2 = il doppio, e passa la luce della mappa al quadrato. */
 export function monta(el, b) {
   /* il carattere della capsula si scarica subito, insieme alle foto, e non quando serve */
   document.fonts.load(font(100)).catch(() => {});
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   /* lo sfondo della pagina dentro la scena: il vetro trasparente tinge quello che c'è dietro, e dietro c'è questo */
-  renderer.setClearColor(new THREE.Color(getComputedStyle(el).backgroundColor), 1);
+  const sfondo = new THREE.Color(getComputedStyle(el).backgroundColor);
+  renderer.setClearColor(sfondo, 1);
   el.append(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -320,7 +324,7 @@ export function monta(el, b) {
      rientranza, prende quello dell'ultima riga */
   const chiaro = !!b.vetro;
   const vetro = chiaro
-    ? vetroChiaro(b.vetro)
+    ? vetroChiaro(b.vetro, b.densita)
     : new THREE.MeshStandardMaterial({ color: 0x0c0a08, roughness: 0.05, envMap, side: THREE.DoubleSide });
   const vetroFondo = chiaro ? vetro : vetro.clone();
   const rb = prof.at(-1)[0];
@@ -329,7 +333,7 @@ export function monta(el, b) {
     64
   );
   for (let i = 0; i < fondo.attributes.uv.count; i++) fondo.attributes.uv.setY(i, 0.01); /* l'ultima riga: il piede */
-  bottiglia.add(new THREE.Mesh(fondo, vetroFondo));
+  bottiglia.add(Object.assign(new THREE.Mesh(fondo, vetroFondo), { renderOrder: 2 }));
   const colora = ({ tela, fondo }) => {
     vetro.map = new THREE.CanvasTexture(tela);
     vetro.map.colorSpace = THREE.SRGBColorSpace;
@@ -398,7 +402,13 @@ export function monta(el, b) {
   const corpo = new THREE.LatheGeometry(puntiVetro, 128);
   const cp = corpo.attributes.position;
   for (let i = 0; i < cp.count; i++) corpo.attributes.uv.setY(i, cp.getY(i) / (f0.basso - z)); /* v = altezza */
-  bottiglia.add(new THREE.Mesh(corpo, vetro));
+  bottiglia.add(Object.assign(new THREE.Mesh(corpo, vetro), { renderOrder: 2 }));
+  /* vino chiaro: prima del vetro un velo del colore dello sfondo, che copre in parte il retro dell'etichetta e
+     l'ombra visti attraverso; dove dietro c'è solo lo sfondo non cambia niente */
+  if (chiaro) {
+    const velo = new THREE.MeshBasicMaterial({ color: sfondo, transparent: true, opacity: VELO, depthWrite: false });
+    bottiglia.add(Object.assign(new THREE.Mesh(corpo, velo), { renderOrder: 1 }));
+  }
 
   /* Le etichette sono fogli appoggiati sul vetro, tagliati lungo i bordi misurati: il bordo è quello di un oggetto
      vero e resta netto a qualsiasi ingrandimento, invece di sfumare dentro una foto allargata.
