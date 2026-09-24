@@ -85,27 +85,38 @@ function pulisci(img, foto, raggio, alt, vetro) {
       /* fuori dalla sagoma conta come il bordo: così il resto è vetro fino in fondo.
          Anche fuori serve il colore giusto: rimpicciolendo la foto la scheda video mescola i pixel vicini */
       const s = r > 0 ? (x + 0.5 - cx) / r : 0;
-      const sb = Math.max(-1, Math.min(1, s));
-      if (!r || !qui.some(([, , s0, s1]) => sb >= s0 && sb <= s1)) {
+      const sb = Math.max(-1, Math.min(1, s)), ds = r > 0 ? 1 / r : 1;
+      /* Quanta parte del pixel cade dentro un'etichetta. Il bordo passa fra un pixel e l'altro e si sposta piano
+         riga dopo riga (la bottiglia nella foto è appena inclinata): deciso pixel per pixel farebbe uno scalino
+         ogni tante righe, che visto di lato, con la foto molto allargata, diventa ben visibile */
+      let dentro = 0;
+      if (r)
+        for (const [, , s0, s1] of qui)
+          dentro = Math.max(dentro, Math.min(1, (Math.min(sb + ds / 2, s1) - Math.max(sb - ds / 2, s0)) / ds));
+      if (dentro <= 0) {
         vetro.forEach((c, ch) => (px[i + ch] = c));
         lx[i] = lx[i + 1] = lx[i + 2] = 255;
         continue;
       }
-      /* oltre il 93% del raggio la foto vede il bordo di taglio: si ripete l'ultima colonna buona */
+      /* oltre il 93% del raggio la foto vede il bordo di taglio: si ripete l'ultima colonna buona,
+         letta fra i due pixel vicini per lo stesso motivo */
       const sv = Math.max(-0.93, Math.min(0.93, s));
-      const j = sv === s ? i : (y * w + Math.round(cx + sv * r - 0.5)) * 4;
-      const lum = (orig[j] + orig[j + 1] + orig[j + 2]) / 765;
-      const sat = (Math.max(orig[j], orig[j + 1], orig[j + 2]) - Math.min(orig[j], orig[j + 1], orig[j + 2])) / 255;
+      const xs = cx + sv * r - 0.5, j0 = Math.floor(xs), f = xs - j0;
+      const i0 = (y * w + j0) * 4, i1 = i0 + 4;
+      const c8 = [0, 1, 2].map((ch) => orig[i0 + ch] + (orig[i1 + ch] - orig[i0 + ch]) * f);
+      const lum = (c8[0] + c8[1] + c8[2]) / 765;
+      const sat = (Math.max(...c8) - Math.min(...c8)) / 255;
       /* negli angoli delle etichette resta un po' di bordo grigio: neutro e non chiaro, diventa vetro
          (la carta bianca e i colori dell'etichetta restano) */
       const bordo = liscia(Math.abs(sv), 0.8, 0.93) * (1 - liscia(sat, 0.05, 0.1)) * (1 - liscia(lum, 0.3, 0.4));
       const luce = luceScatto(sv);
       let l = 0;
       for (let ch = 0; ch < 3; ch++) {
-        const a = LIN[orig[j + ch]];
+        const a = LIN[orig[i0 + ch]] + (LIN[orig[i1 + ch]] - LIN[orig[i0 + ch]]) * f;
         const pulito = Math.min(1, (a + (v[ch] - a) * bordo) / luce);
-        px[i + ch] = srgb(pulito);
-        l += pulito / 3;
+        const fine = v[ch] + (pulito - v[ch]) * dentro; /* sul bordo: in parte etichetta, in parte vetro */
+        px[i + ch] = srgb(fine);
+        l += fine / 3;
       }
       lx[i] = lx[i + 1] = lx[i + 2] = 255 * (1 - liscia(l, 0.02, 0.15));
     }
