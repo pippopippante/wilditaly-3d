@@ -9,6 +9,8 @@ const CENTRO = 0.47; /* altezza del perno di rotazione, con la bottiglia alta 1 
 const liscia = THREE.MathUtils.smoothstep;
 const LIN = Array.from({ length: 256 }, (_, i) => ((i / 255 + 0.055) / 1.055) ** 2.4);
 const srgb = (c) => 255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
+const SRGB = Uint8ClampedArray.from({ length: 4096 }, (_, i) => srgb(i / 4095)); /* tabella: niente potenze nel ciclo */
+const font = (n) => `700 ${n}px "EB Garamond", Georgia, serif`; /* scritta della capsula */
 const mediana = (a) => a.sort((p, q) => p - q)[a.length >> 1] ?? 0;
 /* interpolazione lineare su punti [x, y] in ordine, prolungata oltre gli estremi */
 const interpola = (p, x) => {
@@ -82,42 +84,58 @@ function pulisci(img, foto, raggio, alt, vetro) {
     return L[j] + (L[j + 1] - L[j]) * (f - j);
   };
 
+  /* Il ciclo gira su un milione e mezzo di pixel per foto: niente oggetti creati dentro, conti con i numeri
+     e basta, e le righe senza etichette (quasi tutte vetro) copiate in un colpo solo */
   const orig = px.slice();
+  const rigaVetro = new Uint8ClampedArray(w * 4), rigaLucida = new Uint8ClampedArray(w * 4).fill(255);
+  for (let x = 0; x < w * 4; x += 4) rigaVetro.set([vetro[0], vetro[1], vetro[2], 255], x);
   for (let y = 0; y < h; y++) {
     const [r, cx] = riga(y);
-    const piega = interpola(foto.curva, y + y0) * r;
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
+    const Y = y + y0, piega = interpola(foto.curva, Y) * r;
+    /* etichette che la riga può toccare: le righe "dritte" dei suoi pixel stanno fra Y - piega e Y */
+    const lo = Math.min(Y, Y - piega) - 1, hi = Math.max(Y, Y - piega) + 1;
+    const qui = r ? foto.etichette.filter(([a, b]) => b > lo && a < hi) : [];
+    if (!qui.length) {
+      px.set(rigaVetro, y * w * 4);
+      lx.set(rigaLucida, y * w * 4);
+      continue;
+    }
+    const ds = 1 / r;
+    for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
       lx[i + 3] = 255;
       /* fuori dalla sagoma conta come il bordo: così il resto è vetro fino in fondo.
          Anche fuori serve il colore giusto: rimpicciolendo la foto la scheda video mescola i pixel vicini */
-      const s = r > 0 ? (x + 0.5 - cx) / r : 0;
-      const sb = Math.max(-1, Math.min(1, s)), ds = r > 0 ? 1 / r : 1;
+      const s = (x + 0.5 - cx) / r;
+      const sb = s < -1 ? -1 : s > 1 ? 1 : s;
       /* riga "dritta" del pixel: quella a cui arriva la sua linea orizzontale ai lati della sagoma */
-      const R = y + y0 - piega * Math.sqrt(1 - sb * sb);
+      const R = Y - piega * Math.sqrt(1 - sb * sb);
       /* Quanta parte del pixel cade dentro un'etichetta, in orizzontale e in verticale. Il bordo passa fra
          un pixel e l'altro e si sposta piano (bottiglia appena inclinata, righe curve): deciso pixel per pixel
          farebbe uno scalino ogni tante righe, che visto di lato, con la foto molto allargata, si vede */
       let dentro = 0;
-      if (r)
-        for (const [a, b, s0, s1] of foto.etichette) {
-          const su = Math.min(R + 0.5, b) - Math.max(R - 0.5, a);
-          if (su > 0)
-            dentro = Math.max(dentro, Math.min(1, su) * Math.min(1, (Math.min(sb + ds / 2, s1) - Math.max(sb - ds / 2, s0)) / ds));
-        }
+      for (let e = 0; e < qui.length; e++) {
+        const q = qui[e];
+        const su = Math.min(R + 0.5, q[1]) - Math.max(R - 0.5, q[0]);
+        const lato = (Math.min(sb + ds / 2, q[3]) - Math.max(sb - ds / 2, q[2])) / ds;
+        if (su > 0 && lato > 0) dentro = Math.max(dentro, Math.min(1, su) * Math.min(1, lato));
+      }
       if (dentro <= 0) {
-        vetro.forEach((c, ch) => (px[i + ch] = c));
+        px[i] = vetro[0];
+        px[i + 1] = vetro[1];
+        px[i + 2] = vetro[2];
         lx[i] = lx[i + 1] = lx[i + 2] = 255;
         continue;
       }
       /* oltre il 93% del raggio la foto vede il bordo di taglio: si ripete l'ultima colonna buona,
          letta fra i due pixel vicini per lo stesso motivo */
-      const sv = Math.max(-0.93, Math.min(0.93, s));
+      const sv = s < -0.93 ? -0.93 : s > 0.93 ? 0.93 : s;
       const xs = cx + sv * r - 0.5, j0 = Math.floor(xs), f = xs - j0;
       const i0 = (y * w + j0) * 4, i1 = i0 + 4;
-      const c8 = [0, 1, 2].map((ch) => orig[i0 + ch] + (orig[i1 + ch] - orig[i0 + ch]) * f);
-      const lum = (c8[0] + c8[1] + c8[2]) / 765;
-      const sat = (Math.max(...c8) - Math.min(...c8)) / 255;
+      const c0 = orig[i0] + (orig[i1] - orig[i0]) * f;
+      const c1 = orig[i0 + 1] + (orig[i1 + 1] - orig[i0 + 1]) * f;
+      const c2 = orig[i0 + 2] + (orig[i1 + 2] - orig[i0 + 2]) * f;
+      const lum = (c0 + c1 + c2) / 765;
+      const sat = (Math.max(c0, c1, c2) - Math.min(c0, c1, c2)) / 255;
       /* negli angoli delle etichette resta un po' di bordo grigio: neutro e non chiaro, diventa vetro
          (la carta bianca e i colori dell'etichetta restano) */
       const bordo = liscia(Math.abs(sv), 0.8, 0.93) * (1 - liscia(sat, 0.05, 0.1)) * (1 - liscia(lum, 0.3, 0.4));
@@ -127,7 +145,7 @@ function pulisci(img, foto, raggio, alt, vetro) {
         const a = LIN[orig[i0 + ch]] + (LIN[orig[i1 + ch]] - LIN[orig[i0 + ch]]) * f;
         const pulito = Math.min(1, (a + (v[ch] - a) * bordo) / luce);
         const fine = v[ch] + (pulito - v[ch]) * dentro; /* sul bordo: in parte etichetta, in parte vetro */
-        px[i + ch] = srgb(fine);
+        px[i + ch] = SRGB[Math.round(fine * 4095)];
         l += fine / 3;
       }
       lx[i] = lx[i + 1] = lx[i + 2] = 255 * (1 - liscia(l, 0.02, 0.15));
@@ -150,7 +168,7 @@ function pulisci(img, foto, raggio, alt, vetro) {
      il carattere viene stretto fino a riempire lo stesso arco. */
 async function telaCapsula(img, b, raggio, alt) {
   const f = b.fronte, [a, z] = f.capsula, sc = b.scritta, [t0, t1] = sc.righe;
-  const S = 4; /* pixel della tela per pixel della foto */
+  const S = 2; /* pixel della tela per pixel della foto: basta anche da vicino */
   const r = raggio(((a + z) / 2 - f.alto) / alt);
   const W = Math.round(2 * Math.PI * r * S), H = (z - a) * S;
   const cx = (y) => f.cx[0] + ((f.cx[1] - f.cx[0]) * (y - f.alto)) / (f.basso - f.alto);
@@ -184,7 +202,6 @@ async function telaCapsula(img, b, raggio, alt) {
     g.fillRect(0, (y - a) * S, W, S);
   }
 
-  const font = (n) => `700 ${n}px "EB Garamond", Georgia, serif`;
   await document.fonts.load(font(100)).catch(() => {});
   g.font = font(100);
   g.font = font((100 * (t1 - t0) * S) / g.measureText("N").actualBoundingBoxAscent);
@@ -223,6 +240,8 @@ async function telaCapsula(img, b, raggio, alt) {
    b.scritta: { testo, righe: [cima, base delle lettere], s: fin dove arriva la scritta, in frazione di raggio }.
    b.vetro, b.lamina, b.oro: colori [r, g, b] 0–255 di vetro, capsula e scritta, letti sulle foto. */
 export function monta(el, b) {
+  /* il carattere della capsula si scarica subito, insieme alle foto, e non quando serve */
+  document.fonts.load(font(100)).catch(() => {});
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   el.append(renderer.domElement);
@@ -266,7 +285,7 @@ export function monta(el, b) {
   bottiglia.position.y = -CENTRO;
   perno.add(bottiglia);
 
-  const vetro = new THREE.MeshPhysicalMaterial({
+  const vetro = new THREE.MeshStandardMaterial({
     color: new THREE.Color().setRGB(...b.vetro.map((x) => x / 255), THREE.SRGBColorSpace),
     roughness: 0.06,
     envMap,
@@ -296,7 +315,7 @@ export function monta(el, b) {
     bottiglia.add(
       new THREE.Mesh(
         geo,
-        new THREE.MeshPhysicalMaterial({
+        new THREE.MeshStandardMaterial({
           color: 0x000000,
           roughness: 0.2,
           envMap,
@@ -365,7 +384,7 @@ export function monta(el, b) {
       bottiglia.add(
         new THREE.Mesh(
           geo,
-          new THREE.MeshPhysicalMaterial({
+          new THREE.MeshStandardMaterial({
             color: 0x000000,
             roughness: 0.05,
             envMap,
