@@ -109,14 +109,16 @@ function pulisci(img, foto, raggio, alt, vetro) {
       const sb = s < -1 ? -1 : s > 1 ? 1 : s;
       /* riga "dritta" del pixel: quella a cui arriva la sua linea orizzontale ai lati della sagoma */
       const R = Y - piega * Math.sqrt(1 - sb * sb);
-      /* Quanta parte del pixel cade dentro un'etichetta, in orizzontale e in verticale. Il bordo passa fra
-         un pixel e l'altro e si sposta piano (bottiglia appena inclinata, righe curve): deciso pixel per pixel
-         farebbe uno scalino ogni tante righe, che visto di lato, con la foto molto allargata, si vede */
+      /* Quanto il pixel sta dentro un'etichetta. I bordi sfumano su un paio di pixel: il bordo passa fra un
+         pixel e l'altro e si sposta piano (etichette appena storte, righe curve), e con una sfumatura di un pixel
+         solo la scheda video lo farebbe avanzare a scatti, che visti di lato, con la foto molto allargata, si vedono */
       let dentro = 0;
       for (let e = 0; e < qui.length; e++) {
-        const q = qui[e];
-        const su = Math.min(R + 0.5, q[1]) - Math.max(R - 0.5, q[0]);
-        const lato = (Math.min(sb + ds / 2, q[3]) - Math.max(sb - ds / 2, q[2])) / ds;
+        const q = qui[e], f = (R - q[0]) / (q[1] - q[0]);
+        const s0 = q[2].length ? q[2][0] + (q[2][1] - q[2][0]) * f : q[2];
+        const s1 = q[3].length ? q[3][0] + (q[3][1] - q[3][0]) * f : q[3];
+        const su = Math.min(R - q[0], q[1] - R) / 2 + 0.5;
+        const lato = Math.min(sb - s0, s1 - sb) / ds / 2.5 + 0.5;
         if (su > 0 && lato > 0) dentro = Math.max(dentro, Math.min(1, su) * Math.min(1, lato));
       }
       if (dentro <= 0) {
@@ -126,29 +128,21 @@ function pulisci(img, foto, raggio, alt, vetro) {
         lx[i] = lx[i + 1] = lx[i + 2] = 255;
         continue;
       }
-      /* oltre il 93% del raggio la foto vede il bordo di taglio: si ripete l'ultima colonna buona,
-         letta fra i due pixel vicini per lo stesso motivo */
-      const sv = s < -0.93 ? -0.93 : s > 0.93 ? 0.93 : s;
-      const xs = cx + sv * r - 0.5, j0 = Math.floor(xs), f = xs - j0;
-      const i0 = (y * w + j0) * 4, i1 = i0 + 4;
-      const c0 = orig[i0] + (orig[i1] - orig[i0]) * f;
-      const c1 = orig[i0 + 1] + (orig[i1 + 1] - orig[i0 + 1]) * f;
-      const c2 = orig[i0 + 2] + (orig[i1 + 2] - orig[i0 + 2]) * f;
-      const lum = (c0 + c1 + c2) / 765;
-      const sat = (Math.max(c0, c1, c2) - Math.min(c0, c1, c2)) / 255;
+      const lum = (orig[i] + orig[i + 1] + orig[i + 2]) / 765;
+      const sat = (Math.max(orig[i], orig[i + 1], orig[i + 2]) - Math.min(orig[i], orig[i + 1], orig[i + 2])) / 255;
       /* negli angoli delle etichette resta un po' di bordo grigio: neutro e non chiaro, diventa vetro
          (la carta bianca e i colori dell'etichetta restano) */
-      const bordo = liscia(Math.abs(sv), 0.8, 0.93) * (1 - liscia(sat, 0.05, 0.1)) * (1 - liscia(lum, 0.3, 0.4));
-      const luce = luceScatto(sv);
+      const bordo = liscia(Math.abs(s), 0.8, 0.93) * (1 - liscia(sat, 0.05, 0.1)) * (1 - liscia(lum, 0.3, 0.4));
+      const luce = luceScatto(s);
       let l = 0;
       for (let ch = 0; ch < 3; ch++) {
-        const a = LIN[orig[i0 + ch]] + (LIN[orig[i1 + ch]] - LIN[orig[i0 + ch]]) * f;
+        const a = LIN[orig[i + ch]];
         const pulito = Math.min(1, (a + (v[ch] - a) * bordo) / luce);
-        const fine = v[ch] + (pulito - v[ch]) * dentro; /* sul bordo: in parte etichetta, in parte vetro */
-        px[i + ch] = SRGB[Math.round(fine * 4095)];
-        l += fine / 3;
+        px[i + ch] = SRGB[Math.round((v[ch] + (pulito - v[ch]) * dentro) * 4095)]; /* sul bordo: in parte vetro */
+        l += pulito / 3;
       }
-      lx[i] = lx[i + 1] = lx[i + 2] = 255 * (1 - liscia(l, 0.02, 0.15));
+      /* il lucido segue la stessa sfumatura del colore: vetro lucido, carta opaca */
+      lx[i] = lx[i + 1] = lx[i + 2] = 255 * (1 - dentro * liscia(l, 0.02, 0.15));
     }
   }
   g.putImageData(dati, 0, 0);
@@ -235,7 +229,8 @@ async function telaCapsula(img, b, raggio, alt) {
 /* b.profilo: [mezza larghezza, riga] in pixel della foto di fronte, dal tappo al fondo.
    b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], curva, etichette } in pixel della propria foto;
    curva: [[riga, quanto scende al centro la linea orizzontale, in raggi], ...], misurato sui bordi dritti;
-   etichette: [riga da, riga a, s da, s a], righe prese ai lati della sagoma, s da -1 (bordo sinistro) a 1 (destro).
+   etichette: [riga da, riga a, s da, s a], righe prese ai lati della sagoma, s da -1 (bordo sinistro) a 1 (destro);
+   s può essere [in cima, in fondo] per un lato storto; meglio un pixel e mezzo dentro il bordo vero della carta.
    b.fronte.capsula: [riga da, riga a] della capsula sulla foto di fronte.
    b.scritta: { testo, righe: [cima, base delle lettere], s: fin dove arriva la scritta, in frazione di raggio }.
    b.vetro, b.lamina, b.oro: colori [r, g, b] 0–255 di vetro, capsula e scritta, letti sulle foto. */

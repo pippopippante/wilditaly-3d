@@ -34,14 +34,14 @@
       capsula: [190, 651],
       /* quanto scendono al centro le linee orizzontali, in raggi: misurato su bordo capsula, cima e fondo etichetta */
       curva: [[651, -0.004], [1298, 0.108], [2283, 0.2107]],
-      /* righe ai lati della sagoma: medaglione che sporge sopra l'etichetta, etichetta */
-      etichette: [[1195, 1300, -0.35, 0.35], [1299.5, 2281.5, -0.94, 0.945]]
+      /* medaglione che sporge sopra l'etichetta; etichetta, coi lati misurati: è incollata appena storta */
+      etichette: [[1195, 1300, -0.35, 0.35], [1299.5, 2281.5, [-0.942, -0.946], [0.9365, 0.9442]]]
     },
     retro: {
       src: "assets/img/napos-napolini-2.jpg", alto: 190, basso: 2456, cx: [1018.5, 1018.5],
       curva: [[654, -0.123], [1562, 0.132], [2127, 0.2025]],
       /* retroetichetta con la fascia nera NAPOLINI a destra */
-      etichette: [[1563.5, 2125.5, -0.875, 0.89]]
+      etichette: [[1563.5, 2125.5, [-0.871, -0.88], 0.885]]
     },
     vetro: [4, 5, 7],
     oro: [185, 150, 115], /* scritta sulla capsula: il corpo delle lettere, fra i bordi sfumati nel rosso e i lampi */
