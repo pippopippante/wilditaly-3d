@@ -125,16 +125,16 @@ function pulisci(img, foto, raggio, alt) {
 }
 
 /* Capsula rifatta da capo, tutta intera: niente giuntura fra le due foto.
-   - Lamina rossa riga per riga, dalla foto di fronte: la mediana del rosso puro al centro di ogni riga, così restano
-     anelli e bordini; lampi, bordi scuri e lettere restano fuori. Le righe della scritta, con le ombrine della
-     stampa in rilievo, prendono il rosso delle righe appena sopra e sotto. Tutto portato al rosso misurato b.lamina.
-   - La scritta ridisegnata col carattere, in oro, davanti e dietro. Nella foto le lettere sono strette e alte:
-     il carattere viene stretto fino a riempire lo stesso arco. */
+   - Lamina riga per riga, dalla foto di fronte: la mediana al centro di ogni riga, così restano anelli e bordini
+     e i lampi (pochi pixel) restano fuori. Le righe della scritta, con le ombrine della stampa in rilievo, prendono
+     il colore delle righe appena sopra e sotto. Tutto portato al colore misurato b.lamina.
+   - La scritta ridisegnata col carattere, in oro, due volte a mezzo giro l'una dall'altra, dove sta sulla capsula
+     vera. Nella foto le lettere sono strette e alte: il carattere viene stretto fino a riempire lo stesso arco. */
 async function telaCapsula(img, b, raggio, alt) {
   const f = b.fronte, [a, z] = f.capsula, sc = b.scritta, [t0, t1] = sc.righe;
-  const S = 2; /* pixel della tela per pixel della foto: basta anche da vicino */
   const r = raggio(((a + z) / 2 - f.alto) / alt);
-  const W = Math.round(2 * Math.PI * r * S), H = (z - a) * S;
+  const S = Math.max(2, 1400 / (2 * Math.PI * r)); /* tela larga 1400 px circa: basta anche da vicino */
+  const W = Math.round(2 * Math.PI * r * S), H = Math.round((z - a) * S);
   const cx = (y) => f.cx[0] + ((f.cx[1] - f.cx[0]) * (y - f.alto)) / (f.basso - f.alto);
 
   const xa = Math.floor(Math.min(cx(a), cx(z)) - r), ww = Math.ceil(2 * r) + 20;
@@ -146,10 +146,9 @@ async function telaCapsula(img, b, raggio, alt) {
   for (let y = a; y <= z; y++) {
     if (y >= t0 - 6 && y <= t1 + 6) continue;
     const cs = [[], [], []], c = cx(y) - xa;
-    for (let x = Math.ceil(c - 0.6 * r); x < c + 0.6 * r; x++) {
+    for (let x = Math.ceil(c - 0.45 * r); x < c + 0.45 * r; x++) {
       const i = ((y - a) * ww + x) * 4;
-      /* rosso puro: fuori le lettere (oro) e i lampi (rosa) */
-      if (px[i + 1] < 0.36 * px[i]) for (let ch = 0; ch < 3; ch++) cs[ch].push(px[i + ch]);
+      for (let ch = 0; ch < 3; ch++) cs[ch].push(px[i + ch]);
     }
     if (cs[0].length) righe.set(y, cs.map((v) => LIN[mediana(v)]));
   }
@@ -163,7 +162,7 @@ async function telaCapsula(img, b, raggio, alt) {
     const q = su === giu ? 0 : (y - su) / (giu - su);
     const lin = righe.get(su).map((v, ch) => ((v + (righe.get(giu)[ch] - v) * q) * LIN[b.lamina[ch]]) / media[ch]);
     g.fillStyle = `rgb(${lin.map((v) => Math.round(srgb(Math.min(1, v)))).join()})`;
-    g.fillRect(0, (y - a) * S, W, S);
+    g.fillRect(0, Math.floor((y - a) * S), W, Math.ceil(S));
   }
 
   await document.fonts.load(font(100)).catch(() => {});
@@ -172,7 +171,8 @@ async function telaCapsula(img, b, raggio, alt) {
   const lettere = [...sc.testo], larghe = lettere.map((l) => g.measureText(l).width);
   const spazio = 0.1 * larghe[0]; /* lettere quasi attaccate, come sulla capsula */
   const naturale = larghe.reduce((p, q) => p + q, 0) + spazio * (lettere.length - 1);
-  const arco = 2 * Math.asin(sc.s) * r * S;
+  /* angoli: 0 al centro della foto di fronte, crescono verso destra; sulla tela u = 0,5 è davanti */
+  const arco = ((sc.arco * Math.PI) / 180) * r * S, inizio = W / 2 + ((sc.inizio * Math.PI) / 180) * r * S;
   /* le stesse lettere anche su una maschera a parte: lì sopra va lo strato di metallo dorato */
   const maschera = Object.assign(document.createElement("canvas"), { width: W, height: H });
   const m = maschera.getContext("2d");
@@ -180,10 +180,10 @@ async function telaCapsula(img, b, raggio, alt) {
   for (const [ctx, colore] of [[g, `rgb(${b.oro.join()})`], [m, "#fff"]]) {
     ctx.font = g.font;
     ctx.fillStyle = colore;
-    for (const centro of [W / 2, 0, W]) {
-      /* davanti; dietro sta a cavallo del bordo della tela, quindi due mezze volte */
+    for (const x0 of [-W, -W / 2, 0, W / 2, W].map((d) => inizio + d)) {
+      /* le due scritte, e le loro copie a cavallo del bordo della tela */
       ctx.save();
-      ctx.translate(centro - arco / 2, (t1 - a) * S);
+      ctx.translate(x0, (t1 - a) * S);
       ctx.scale(arco / naturale, 1);
       let x = 0;
       lettere.forEach((l, i) => {
@@ -196,6 +196,37 @@ async function telaCapsula(img, b, raggio, alt) {
   return { tela, maschera };
 }
 
+/* Vetro: il colore di ogni riga dalla foto di fronte, al centro della bottiglia (mediana: i lampi restano fuori).
+   Nel vino chiaro il vetro cambia colore con l'altezza (collo, livello del vino, tallone); nel rosso scuro è nero.
+   Le righe coperte dall'etichetta prendono il colore dell'ultima riga libera sopra: il corpo continua uguale fino
+   al tallone, che nella foto è più scuro e non va mescolato al resto. */
+function telaVetro(img, b, raggio, alt) {
+  const f = b.fronte, z = f.capsula[1];
+  const cx = (y) => f.cx[0] + ((f.cx[1] - f.cx[0]) * (y - f.alto)) / (f.basso - f.alto);
+  const xa = Math.floor(Math.min(...f.cx) - raggio.max), ww = Math.ceil(2 * raggio.max) + 4, hh = f.basso - z + 1;
+  const lettura = Object.assign(document.createElement("canvas"), { width: ww, height: hh });
+  const lg = lettura.getContext("2d", { willReadFrequently: true });
+  lg.drawImage(img, -xa, -z);
+  const px = lg.getImageData(0, 0, ww, hh).data;
+  const righe = new Map();
+  for (let y = z + 4; y <= f.basso - 2; y++) {
+    const r = raggio((y - f.alto) / alt), R = y - interpola(f.curva, y) * r; /* riga dritta, al centro */
+    if (f.etichette.some(([a, b2]) => R > a - 6 && R < b2 + 6)) continue;
+    const cs = [[], [], []], c = cx(y) - xa;
+    for (let x = Math.ceil(c - 0.45 * r); x < c + 0.45 * r; x++)
+      for (let ch = 0; ch < 3; ch++) cs[ch].push(px[((y - z) * ww + x) * 4 + ch]);
+    righe.set(y, cs.map(mediana));
+  }
+  const buone = [...righe.keys()];
+  const tela = Object.assign(document.createElement("canvas"), { width: 4, height: hh });
+  const g = tela.getContext("2d");
+  for (let y = z; y <= f.basso; y++) {
+    g.fillStyle = `rgb(${righe.get(buone.findLast((q) => q <= y) ?? buone[0]).join()})`;
+    g.fillRect(0, y - z, 4, 1);
+  }
+  return { tela, fondo: righe.get(buone.at(-1)) };
+}
+
 /* b.profilo: [mezza larghezza, riga] in pixel della foto di fronte, dal tappo al fondo.
    b.fronte / b.retro: { src, alto, basso, cx: [centro in alto, centro in basso], curva, etichette } in pixel della propria foto;
    curva: [[riga, quanto scende al centro la linea orizzontale, in raggi], ...], misurato sui bordi dritti;
@@ -203,8 +234,10 @@ async function telaCapsula(img, b, raggio, alt) {
    s può essere [in cima, in fondo] per un lato storto; meno di un pixel dentro il bordo vero della carta.
    trasparente: [riga da, riga a, s da, s a] dove il nero dell'etichetta è vetro visto da un buco.
    b.fronte.capsula: [riga da, riga a] della capsula sulla foto di fronte.
-   b.scritta: { testo, righe: [cima, base delle lettere], s: fin dove arriva la scritta, in frazione di raggio }.
-   b.vetro, b.lamina, b.oro: colori [r, g, b] 0–255 di vetro, capsula e scritta, letti sulle foto. */
+   b.scritta: { testo, righe: [cima, base delle lettere], inizio: angolo dove comincia (gradi, 0 davanti, positivi
+   a destra), arco: quanti gradi occupa }; sulla capsula ce ne sono due, a mezzo giro l'una dall'altra.
+   b.lamina, b.oro: colori [r, g, b] 0–255 di capsula e scritta, letti sulle foto (la lamina dove la luce la prende
+   di fronte). Il vetro lo legge da solo, riga per riga. */
 export function monta(el, b) {
   /* il carattere della capsula si scarica subito, insieme alle foto, e non quando serve */
   document.fonts.load(font(100)).catch(() => {});
@@ -251,13 +284,10 @@ export function monta(el, b) {
   bottiglia.position.y = -CENTRO;
   perno.add(bottiglia);
 
-  const vetro = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setRGB(...b.vetro.map((x) => x / 255), THREE.SRGBColorSpace),
-    roughness: 0.05,
-    envMap,
-    side: THREE.DoubleSide
-  });
-  /* fondo con la rientranza, in vetro pieno */
+  /* vetro: prima un colore scuro qualsiasi, poi (letta la foto) il colore di ogni riga; il fondo, con la
+     rientranza, prende quello dell'ultima riga */
+  const vetro = new THREE.MeshStandardMaterial({ color: 0x0c0a08, roughness: 0.05, envMap, side: THREE.DoubleSide });
+  const vetroFondo = vetro.clone();
   const rb = prof.at(-1)[0];
   bottiglia.add(
     new THREE.Mesh(
@@ -265,9 +295,16 @@ export function monta(el, b) {
         [[0, 0.4], [0.3, 0.36], [0.65, 0.18], [0.9, 0.03], [1, 0]].map(([r, y]) => new THREE.Vector2(r * rb, y * rb)),
         64
       ),
-      vetro
+      vetroFondo
     )
   );
+  const colora = ({ tela, fondo }) => {
+    vetro.map = new THREE.CanvasTexture(tela);
+    vetro.map.colorSpace = THREE.SRGBColorSpace;
+    vetro.color.set(0xffffff);
+    vetro.needsUpdate = true;
+    vetroFondo.color.setRGB(...fondo.map((x) => x / 255), THREE.SRGBColorSpace);
+  };
 
   /* capsula: tela disegnata da capo (u = angolo, v = altezza), lucida a metà; in cima un disco dello stesso rosso */
   const capsula = ({ tela, maschera }) => {
@@ -286,7 +323,7 @@ export function monta(el, b) {
           roughness: 0.2,
           envMap,
           transparent: true,
-          opacity: 0.4,
+          opacity: 0.3,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           polygonOffset: true,
@@ -326,15 +363,23 @@ export function monta(el, b) {
   };
 
   /* Il corpo è vetro e basta, tutto intero: niente giuntura fra le due foto. */
-  bottiglia.add(new THREE.Mesh(new THREE.LatheGeometry(puntiVetro, 128), vetro));
+  const corpo = new THREE.LatheGeometry(puntiVetro, 128);
+  const cp = corpo.attributes.position;
+  for (let i = 0; i < cp.count; i++) corpo.attributes.uv.setY(i, cp.getY(i) / (f0.basso - z)); /* v = altezza */
+  bottiglia.add(new THREE.Mesh(corpo, vetro));
 
   /* Le etichette sono fogli appoggiati sul vetro, tagliati lungo i bordi misurati: il bordo è quello di un oggetto
      vero e resta netto a qualsiasi ingrandimento, invece di sfumare dentro una foto allargata.
      Ogni foglio prende i colori dalla sua foto, leggendola lungo le curve della prospettiva. */
   const foglio = (foto, verso, p, q) => {
-    const nR = 48, nC = 64, pos = [], uv = [], idx = [];
+    /* righe del foglio: 48 in fila più quelle dei punti del profilo, così il foglio piega dove piega il vetro
+       e il vetro non spunta mai attraverso la carta */
+    const kf = (foto.basso - foto.alto) / alt;
+    const righe = [...Array.from({ length: 49 }, (_, i) => q[0] + ((q[1] - q[0]) * i) / 48),
+      ...prof.map(([, y]) => foto.alto + (y - f0.alto) * kf).filter((R) => R > q[0] && R < q[1])].sort((a, b) => a - b);
+    const nR = righe.length - 1, nC = 64, pos = [], uv = [], idx = [];
     for (let i = 0; i <= nR; i++) {
-      const f = i / nR, R = q[0] + (q[1] - q[0]) * f;
+      const R = righe[i], f = (R - q[0]) / (q[1] - q[0]);
       const s0 = q[2].length ? q[2][0] + (q[2][1] - q[2][0]) * f : q[2];
       const s1 = q[3].length ? q[3][0] + (q[3][1] - q[3][0]) * f : q[3];
       const t = (R - foto.alto) / (foto.basso - foto.alto), r = raggio(t);
@@ -367,7 +412,10 @@ export function monta(el, b) {
       const p = pulisci(img, foto, raggio, alt);
       p.mappa.anisotropy = renderer.capabilities.getMaxAnisotropy();
       foto.etichette.forEach((q) => foglio(foto, verso, p, q));
-      if (verso > 0) telaCapsula(img, b, raggio, alt).then(capsula);
+      if (verso > 0) {
+        colora(telaVetro(img, b, raggio, alt));
+        telaCapsula(img, b, raggio, alt).then(capsula);
+      }
     });
   };
   meta(b.fronte, 1);
