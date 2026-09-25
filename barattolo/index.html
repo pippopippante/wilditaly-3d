@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Wild Italy · prova del barattolo 3D (salsa tartufata 130 g), dalle tre foto definitive -->
+<!-- Wild Italy · prova del barattolo 3D (salsa tartufata 130 g) che gira dentro la sua foto -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
@@ -7,27 +7,27 @@
 <title>Barattolo 3D · Wild Italy</title>
 <meta name="robots" content="noindex">
 <style>
-  body{margin:0;background:#F6F0E4;color:#4A3C2E;font:13px/1.4 system-ui,sans-serif}
-  .vista{height:100svh;background:#F6F0E4;cursor:grab;touch-action:none}
-  .vista:active{cursor:grabbing}
-  .nota,.nome{position:fixed;left:16px;right:16px;margin:0;text-align:center;pointer-events:none}
-  .nota{top:20px}
-  .nome{bottom:24px;font:600 18px/1.2 Georgia,serif;color:#332618}
+  body{margin:0;background:#1b1510;color:#f6f0e4;font:13px/1.4 system-ui,sans-serif;min-height:100svh;
+    display:flex;flex-direction:column;align-items:center;justify-content:center}
+  /* la foto intera, grande quanto sta nello schermo; il 3D ci sta sopra, della stessa misura */
+  .scena{position:relative;width:min(100vw,calc(100svh * 1122 / 1402));aspect-ratio:1122/1402;
+    background:url(scena.jpg) center/100% 100%;cursor:grab}
+  .scena:active{cursor:grabbing}
+  .scena canvas{position:absolute;inset:0}
+  .nota{position:absolute;left:16px;right:16px;bottom:16px;margin:0;text-align:center;pointer-events:none;
+    text-shadow:0 1px 3px rgba(0,0,0,.8)}
 </style>
 <script type="importmap">
-  { "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
-  } }
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }
 </script>
 </head>
 <body>
-<div class="vista" data-3d></div>
-<p class="nota">Trascina per girare il barattolo · rotella o due dita per avvicinarti</p>
-<p class="nome">Salsa tartufata 130 g</p>
+<div class="scena" data-3d role="img" aria-label="Salsa tartufata 130 g: trascina per girare il barattolo">
+  <p class="nota">Trascina per girare il barattolo</p>
+</div>
 <script type="module">
   import { monta } from "./barattolo-3d.js";
-  monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json());
+  monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json(), "scena.jpg");
 </script>
 </body>
 </html>

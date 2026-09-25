@@ -1,153 +1,97 @@
-/* Wild Italy · barattolo 3D da tre foto (misure e immagine da barattolo.py, in modello.json).
-   Vetro: solido di rotazione misurato sulla foto di fronte, vestito col giro (etichette e salsa cucite dalle tre foto),
-   più uno strato lucido che riflette lo studio. Tappo: metallo dorato, col disco nero stampato sopra.
-   Come per la bottiglia, le luci restano ferme ed è il barattolo a girare. */
+/* Wild Italy · il barattolo della salsa tartufata che gira dentro la sua foto (misure e immagini da barattolo.py).
+   Tappo, collo, fondo e riflessi sono uguali tutto intorno: girando restano quelli della foto, che fa da sfondo.
+   Qui c'è solo quello che gira: la salsa dentro il vetro, le etichette sopra e il lucido del vetro, messi con la
+   stessa fotocamera della foto proprio sopra il corpo del barattolo fotografato. */
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const MEZZO = Math.tan(THREE.MathUtils.degToRad(14)); /* metà dell'angolo di vista verticale (28°) */
-
-/* studio per i riflessi: fondo caldo e scuro (l'oro non diventa nero), due pannelli alti ai lati e uno sopra */
-function studio(renderer) {
-  const s = new THREE.Scene();
-  s.background = new THREE.Color(0x3a2e22);
-  const pannello = (w, h, x, y, z, forza) => {
-    const m = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, h),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color().setScalar(forza), side: THREE.DoubleSide })
-    );
-    m.position.set(x, y, z);
-    m.lookAt(0, 0, 0);
-    s.add(m);
-  };
-  pannello(1.6, 9, -4, 0, 1.6, 14);
-  pannello(1.6, 9, 4, 0, 1.6, 10);
-  pannello(7, 2, 0, 5, 0, 5);
-  return new THREE.PMREMGenerator(renderer).fromScene(s, 0.02).texture;
-}
-
-export function monta(el, m) {
+export function monta(el, m, sfondo) {
+  const s = m.scena;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setClearColor(new THREE.Color(getComputedStyle(el).backgroundColor), 1);
+  renderer.setClearColor(0x000000, 0); /* trasparente: sotto c'è la foto */
   el.append(renderer.domElement);
-  const envMap = studio(renderer);
+  const carica = (src, poi) =>
+    Object.assign(new THREE.TextureLoader().load(src, poi), {
+      colorSpace: THREE.SRGBColorSpace,
+      anisotropy: renderer.capabilities.getMaxAnisotropy()
+    });
+
+  /* la fotocamera della foto: in piano, focale f, centro ottico (cx, cy); la foto è un pezzo della vista intera */
+  const W = 2 * Math.max(s.cx, s.w - s.cx), H = 2 * Math.max(s.cy, s.h - s.cy);
+  const camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(2 * Math.atan(H / 2 / s.f)), W / H, 0.1, 100);
+  camera.setViewOffset(W, H, W / 2 - s.cx, H / 2 - s.cy, s.w, s.h);
 
   const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xffffff, 1.55));
-  const chiave = new THREE.DirectionalLight(0xffffff, 1.8);
-  chiave.position.set(-0.6, 1, 2.5);
-  scene.add(chiave);
-  const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 50);
+  scene.add(new THREE.AmbientLight(0xffffff, 2.6));
+  const sole = new THREE.DirectionalLight(0xffffff, 1.4);
+  sole.position.set(-1, 1.2, 2);
+  scene.add(sole);
 
-  /* in pixel della foto di fronte, y in su (y = -riga); il barattolo è alto 1 e il perno sta a metà */
-  const { profilo, righe: [su, giu], tappo: t } = m;
-  const cima = su - t.alto, alt = giu - cima;
-  const perno = new THREE.Group();
-  scene.add(perno);
+  /* il barattolo ha raggio 1: sta a distanza f / r perché nella foto sia largo r pixel */
+  const Z = s.f / s.r;
   const barattolo = new THREE.Group();
-  barattolo.scale.setScalar(1 / alt);
-  barattolo.position.y = (cima + giu) / 2 / alt;
-  perno.add(barattolo);
+  barattolo.position.set(((s.x - s.cx) / s.f) * Z, (-(s.y0 - s.cy) / s.f) * Z, -Z);
+  scene.add(barattolo);
+  /* un cilindro aperto dall'altezza su a giu, u = 0,5 davanti */
+  const giro = (r, su, giu, segmenti) =>
+    new THREE.CylinderGeometry(r, r, su - giu, segmenti, 1, true, -Math.PI, 2 * Math.PI).translate(0, (su + giu) / 2, 0);
 
-  /* vetro: punti dal fondo verso l'alto (se no le normali guardano dentro); u = 0,5 davanti, v = altezza sul giro */
-  const vetro = new THREE.LatheGeometry(
-    profilo.map(([riga, r]) => new THREE.Vector2(r, -riga)).reverse(),
-    128,
-    -Math.PI,
-    2 * Math.PI
+  /* salsa: poco dentro il vetro, la stessa fascia ripetuta tutto intorno; appena più scura, perché le luci la
+     schiariscono e nella foto è già illuminata */
+  const [giu, su] = m.corpo;
+  const salsa = carica("salsa.jpg");
+  salsa.wrapS = THREE.RepeatWrapping;
+  salsa.repeat.set(360 / m.salsa.gradi, 1);
+  salsa.offset.x = 0.3; /* la giuntura non davanti */
+  barattolo.add(new THREE.Mesh(giro(0.93, su, giu, 128), new THREE.MeshLambertMaterial({ map: salsa, color: 0xd6d6d6 })));
+
+  /* etichette: un foglio unico appena sopra il vetro; dove non c'è etichetta è trasparente */
+  const [eSu, eGiu] = m.etichetta;
+  barattolo.add(
+    new THREE.Mesh(giro(1.003, eSu, eGiu, 256), new THREE.MeshLambertMaterial({ map: carica("etichette.png"), alphaTest: 0.5 }))
   );
-  const pos = vetro.attributes.position, uv = vetro.attributes.uv;
-  for (let i = 0; i < pos.count; i++) uv.setY(i, (giu + pos.getY(i)) / (giu - su));
-  const giro = Object.assign(new THREE.TextureLoader().load(m.giro), {
-    colorSpace: THREE.SRGBColorSpace,
-    anisotropy: renderer.capabilities.getMaxAnisotropy()
-  });
-  barattolo.add(new THREE.Mesh(vetro, new THREE.MeshLambertMaterial({ map: giro })));
+
+  /* il lucido del vetro: riflette la scena stessa, solo dove non c'è etichetta (le etichette gli stanno davanti) */
+  const ambiente = carica(sfondo);
+  ambiente.mapping = THREE.EquirectangularReflectionMapping;
   barattolo.add(
     new THREE.Mesh(
-      vetro,
+      giro(1, su, giu, 128),
       new THREE.MeshStandardMaterial({
         color: 0x000000,
-        roughness: 0.08,
-        envMap,
+        roughness: 0.1,
+        envMapIntensity: 1,
+        envMap: ambiente,
         transparent: true,
-        opacity: 0.45,
+        opacity: 0.6,
         blending: THREE.AdditiveBlending,
         depthWrite: false
       })
     )
   );
-  /* il fondo: vetro spesso con la salsa sopra */
-  const [righaFondo, rFondo] = profilo.at(-1);
-  const fondo = new THREE.Mesh(new THREE.CircleGeometry(rFondo, 64), new THREE.MeshLambertMaterial({ color: 0x2a1c10 }));
-  fondo.rotation.x = Math.PI / 2;
-  fondo.position.y = -righaFondo;
-  barattolo.add(fondo);
 
-  /* tappo: fascia dorata col bordo di sopra arrotondato, piano dorato sopra e il disco nero stampato */
-  const oro = new THREE.MeshStandardMaterial({ color: 0xe0b45c, metalness: 1, roughness: 0.3, envMap });
-  const R = t.raggio, smusso = 0.05 * R;
-  const bordo = [[R, -su], [R, -cima - smusso]];
-  for (let k = 1; k <= 6; k++) {
-    const a = (k / 6) * (Math.PI / 2);
-    bordo.push([R - smusso + smusso * Math.cos(a), -cima - smusso + smusso * Math.sin(a)]);
-  }
-  barattolo.add(new THREE.Mesh(new THREE.LatheGeometry(bordo.map(([r, y]) => new THREE.Vector2(r, y)), 128), oro));
-  const disco = (r, y, mat) => {
-    const d = new THREE.Mesh(new THREE.CircleGeometry(r, 96), mat);
-    d.rotation.x = -Math.PI / 2;
-    d.position.y = y;
-    barattolo.add(d);
-  };
-  disco(R - smusso, -cima, oro);
-  disco(t.disco * R, -cima + 0.5, new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.35, envMap }));
+  /* si gira solo attorno all'asse, col dito o col mouse in orizzontale; in verticale la pagina scorre */
+  renderer.domElement.style.touchAction = "pan-y";
+  let giri = 0, spinta = 0, x0 = null;
+  renderer.domElement.addEventListener("pointerdown", (e) => {
+    x0 = e.clientX;
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
+  renderer.domElement.addEventListener("pointermove", (e) => {
+    if (x0 === null) return;
+    spinta = ((e.clientX - x0) / el.clientWidth) * 4;
+    giri += spinta;
+    x0 = e.clientX;
+  });
+  const lascia = () => (x0 = null);
+  renderer.domElement.addEventListener("pointerup", lascia);
+  renderer.domElement.addEventListener("pointercancel", lascia);
 
-  /* ombra morbida a terra, gira col barattolo */
-  const c = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
-  const g = c.getContext("2d");
-  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, "rgba(20,16,12,.45)");
-  grad.addColorStop(1, "rgba(20,16,12,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 128, 128);
-  const ombra = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.1, 1.1),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false })
-  );
-  ombra.rotation.x = -Math.PI / 2;
-  ombra.position.y = 0.001 - 0.5;
-  ombra.renderOrder = -1;
-  perno.add(ombra);
-
-  /* OrbitControls muove una camera immaginaria; il barattolo fa il movimento opposto e la camera vera sta ferma.
-     Si parte di fronte, appena dall'alto come nelle foto; la distanza è relativa a quella che fa stare tutto nel riquadro */
-  const occhio = new THREE.PerspectiveCamera();
-  occhio.position.setFromSphericalCoords(1, 1.35, 0);
-  const controls = new OrbitControls(occhio, renderer.domElement);
-  controls.enableDamping = true;
-  controls.enablePan = false;
-  controls.minDistance = 0.35;
-  controls.maxDistance = 1.6;
-  controls.minPolarAngle = 0.03;
-  controls.maxPolarAngle = Math.PI - 0.03;
-
-  let fit = 2;
-  new ResizeObserver(() => {
-    const { clientWidth: w, clientHeight: h } = el;
-    renderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    /* alto 1,45 e largo 1,1 col margine (il barattolo è alto 1 e largo 0,7) */
-    fit = Math.max(0.72 / MEZZO, 0.55 / (MEZZO * camera.aspect));
-  }).observe(el);
-
+  new ResizeObserver(() => renderer.setSize(el.clientWidth, el.clientHeight)).observe(el);
   renderer.setAnimationLoop(() => {
     if (!el.offsetWidth) return;
-    controls.update();
-    perno.quaternion.copy(occhio.quaternion).invert();
-    camera.position.set(0, 0, occhio.position.length() * fit);
+    if (x0 === null) giri += spinta *= 0.92; /* lasciato, rallenta piano */
+    barattolo.rotation.y = giri;
     renderer.render(scene, camera);
   });
-  return controls;
 }
