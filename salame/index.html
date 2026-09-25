@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- Wild Italy · prova del salame 3D (salame morbido spalmabile), da una sola foto di lato -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Salame 3D · Wild Italy</title>
+<meta name="robots" content="noindex">
+<style>
+  body{margin:0;background:#F6F0E4;color:#4A3C2E;font:13px/1.4 system-ui,sans-serif}
+  .vista{height:100svh;background:#F6F0E4;cursor:grab;touch-action:none}
+  .vista:active{cursor:grabbing}
+  .nota,.nome{position:fixed;left:16px;right:16px;margin:0;text-align:center;pointer-events:none}
+  .nota{top:20px}
+  .nome{bottom:24px;font:600 18px/1.2 Georgia,serif;color:#332618}
+</style>
+<script type="importmap">
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  } }
+</script>
+</head>
+<body>
+<div class="vista" data-3d></div>
+<p class="nota">Trascina per girare il salame · rotella o due dita per avvicinarti</p>
+<p class="nome">Salame morbido spalmabile</p>
+<script type="module">
+  import { monta } from "./salame-3d.js";
+  monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json());
+</script>
+</body>
+</html>
