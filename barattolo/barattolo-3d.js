@@ -106,10 +106,13 @@ export function monta(el, m) {
     envMapIntensity: 0.15
   });
   barattolo.add(new THREE.Mesh(salsa, pelle));
-  /* la superficie della salsa, appena incavata: si vede dalla spalla quando si guarda dall'alto */
+  /* la superficie della salsa, appena incavata: si vede dalla spalla quando si guarda dall'alto. Sta
+     all'ombra del tappo, quindi più scura di quella di lato. */
   const [livello, rSalsa] = m.dentro[0];
   const pelleCima = carica("salsa.jpg", true);
-  pelleCima.repeat.set(1.6, 1.6);
+  pelleCima.repeat.set(2 * rSalsa / m.salsa.largo, 2 * rSalsa / m.salsa.alto); /* grana quadrata, se no sembra legno */
+  pelleCima.center.set(0.5, 0.5);
+  pelleCima.rotation = 0.7;
   const faccia = new THREE.CircleGeometry(rSalsa, 96);
   const fp = faccia.attributes.position;
   for (let i = 0; i < fp.count; i++) {
@@ -119,7 +122,7 @@ export function monta(el, m) {
   faccia.computeVertexNormals();
   const cima = new THREE.Mesh(
     faccia,
-    new THREE.MeshStandardMaterial({ map: pelleCima, bumpMap: pelleCima, bumpScale: 0.015, roughness: 0.4, envMap, envMapIntensity: 0.25 })
+    new THREE.MeshStandardMaterial({ map: pelleCima, bumpMap: pelleCima, bumpScale: 0.01, color: 0x8c8c8c, roughness: 0.5, envMap, envMapIntensity: 0.2 })
   );
   cima.rotation.x = -Math.PI / 2;
   cima.position.y = livello;

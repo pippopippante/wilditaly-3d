@@ -31,7 +31,12 @@
 <p class="nome">Salsa tartufata 130 g</p>
 <script type="module">
   import { monta } from "./barattolo-3d.js";
-  monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json());
+  const c = monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json());
+  /* per le prove: __gira(gradi) mette il barattolo a un angolo preciso, senza trascinare */
+  window.__gira = (gradi, alto = 1.33) => {
+    c.object.position.setFromSphericalCoords(c.object.position.length(), alto, gradi * Math.PI / 180);
+    c.update();
+  };
 </script>
 </body>
 </html>

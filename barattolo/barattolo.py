@@ -62,35 +62,48 @@ def srotola(n, teta, h):
 
 
 # --- etichette: un foglio unico tutto intorno, da sopra l'etichetta nera a sotto ----------------------------------------
+# Ogni foto prende la fetta che guarda in faccia: davanti la 1 (etichetta nera intera, col suo bordo d'oro e le due
+# strisce dorate ai lati), a sinistra la 3, a destra la 2. Le sfumature fra una foto e l'altra cadono fuori
+# dall'etichetta nera, così nessuna giunzione la taglia. Dietro restano una ventina di gradi che non ha visto
+# nessuna foto: lì l'etichetta è oro liscio, riga per riga (i fili d'oro in cima e in fondo restano).
 HE = righe(0.40, -1.25)
 oro = (HE <= 0) & (HE >= -H)
+grezza1, _ = srotola(1, TETA, HE)  # la foto di fronte com'è: i bordi dell'etichetta nera si cercano su questa
 dor = {}
-for n in (3, 2):
+for n in (3, 2, 1):
     g, vis = srotola(n, TETA, HE)
-    # luce dello scatto angolo per angolo, sul fondo dell'etichetta (75° percentile: le scritte, scure, restano sotto)
-    ok = vis[oro].all(0)
+    scoperto = vis[oro].all(0)
+    if n == 1:  # davanti l'etichetta dorata si vede solo ai due lati di quella nera
+        scoperto &= (TETA < NERA[0] - 2) | (TETA > NERA[1] + 2)
+    # luce dello scatto angolo per angolo, sul fondo dell'etichetta (75° percentile: le scritte, scure, restano sotto);
+    # dove l'etichetta dorata non si vede, la luce si tira dalle colonne vicine
     lum = np.percentile(g[oro].mean(2), 75, axis=0)
-    lum = np.interp(np.arange(len(TETA)), np.nonzero(ok)[0], lum[ok])
+    lum = np.interp(np.arange(len(TETA)), np.nonzero(scoperto)[0], lum[scoperto])
     lum = np.convolve(np.pad(lum, 60, mode="edge"), np.ones(121) / 121, mode="valid")
-    g /= np.clip(lum / np.median(lum[ok & (np.abs(TETA - PHI[n]) < 20)]), 0.6, 1.6)[None, :, None]
-    # lo stesso colore di fondo in tutte e due: quello della foto 3
-    fondo = np.median(g[oro][:, ok & (np.abs(TETA - PHI[n]) < 40)], (0, 1))
-    rif = fondo if n == 3 else rif
+    vicino = scoperto & (np.abs(TETA - PHI[n]) < (60 if n == 1 else 30))
+    g /= np.clip(lum / np.median(lum[vicino]), 0.6, 1.6)[None, :, None]
+    fondo = np.median(g[oro][:, vicino], (0, 1))  # lo stesso colore di fondo in tutte e tre: quello della foto 3
+    if n == 3:
+        rif = fondo
     dor[n] = g / fondo * rif
-# a sinistra la foto 3 fino al lato dell'etichetta nera, a destra la 2; dietro nessuna vede bene: fondo liscio,
-# riga per riga (così restano i fili d'oro in cima e in fondo)
-p3 = liscio(TETA, -158, -152) * (1 - liscio(TETA, NERA[0] + 1, NERA[0] + 3))  # oltre -155° la vede di sbieco
-p2 = liscio(TETA, NERA[1] - 3, NERA[1] - 1) * (1 - liscio(TETA, 160, 165))
-fondo = np.percentile(dor[3][:, (TETA > -130) & (TETA < -60)], 55, axis=1)
+p1 = liscio(TETA, -48, -41) * (1 - liscio(TETA, 50, 57))
+p3 = liscio(TETA, -170, -158) * (1 - liscio(TETA, -48, -41))  # oltre -160° la vede troppo di sbieco
+p2 = liscio(TETA, 50, 57) * (1 - liscio(TETA, 158, 170))
+dietro = np.clip(1 - p1 - p2 - p3, 0, 1)
+riempi = np.percentile(dor[3][:, (TETA > -150) & (TETA < -60)], 55, axis=1)
 fili = (HE > -0.035) | (HE < -H + 0.035)
-fondo[~fili] = np.median(fondo[oro & ~fili], 0)
-dietro = 1 - p3 - p2 - ((TETA > NERA[0]) & (TETA < NERA[1]))
-etichette = dor[3] * p3[None, :, None] + dor[2] * p2[None, :, None] + fondo[:, None, :] * dietro[None, :, None]
+riempi[~fili] = np.median(riempi[oro & ~fili], 0)
+# la toppa va messa alla stessa luce dei due bordi che le stanno accanto, se no si vede una macchia chiara
+bordi = np.concatenate([dor[2][oro][:, (TETA > 138) & (TETA < 152)].reshape(-1, 3),
+                        dor[3][oro][:, (TETA > -152) & (TETA < -138)].reshape(-1, 3)])
+riempi *= np.median(bordi, 0) / np.median(riempi[oro], 0)
+etichette = (dor[1] * p1[None, :, None] + dor[3] * p3[None, :, None] + dor[2] * p2[None, :, None]
+             + riempi[:, None, :] * dietro[None, :, None])
 
-# etichetta nera dalla foto di fronte; la sua sagoma: per ogni colonna il primo bordo d'oro dall'alto e dal basso
-g1, _ = srotola(1, TETA, HE)
+# la sagoma dell'etichetta nera: serve solo per il trasparente sopra e sotto la fascia dorata (il colore lì viene
+# comunque dalla foto 1). Per ogni colonna il primo bordo d'oro dall'alto e dall'basso.
 in_nera = (TETA >= NERA[0] - 0.3) & (TETA <= NERA[1] + 0.3)
-r_, g_, b_ = [SRGB(g1)[..., k].astype(float) for k in range(3)]
+r_, g_, b_ = [SRGB(grezza1)[..., k].astype(float) for k in range(3)]
 dorato = (r_ + g_ - 2 * b_ > 90) & (r_ > 150)
 alto = np.full(len(TETA), np.nan)
 basso = np.full(len(TETA), np.nan)
@@ -104,13 +117,19 @@ for j in np.nonzero(in_nera)[0]:
     if len(giu):
         basso[j] = giu[-1]
 cj = np.nonzero(in_nera)[0]
-# in cima: mediana su 9 colonne, e dove non c'è il filo le colonne vicine
+# in cima l'arco: dove non c'è il filo si tira dalle colonne vicine, poi si butta via chi scappa (i lampi d'oro sul
+# vetro dietro) e si liscia. Senza questo il bordo dorato esce a scalini.
+mediana = lambda v, k: np.array([np.median(v[max(0, i - k):i + k + 1]) for i in range(len(v))])
 ok = ~np.isnan(alto[cj])
-alto[cj] = np.interp(cj, cj[ok], alto[cj][ok])
-alto[cj] = [np.median(alto[cj][max(0, k - 4):k + 5]) for k in range(len(cj))]
-# sui 4° ai lati il bordo è quello delle spalle, mai più in alto (lì il vetro ha dei lampi d'oro)
-for lato in (cj[:4 * PX], cj[-4 * PX:]):
-    alto[lato] = np.maximum(alto[lato], np.median(alto[lato]))
+arco = mediana(np.interp(cj, cj[ok], alto[cj][ok]), 4)
+for _ in range(3):
+    largo = mediana(arco, 14)
+    scappa = np.abs(arco - largo) > 4
+    arco[scappa] = largo[scappa]
+bordo = 2 * PX  # sui 2° estremi il bordo si vede di taglio e il filo si perde: si tiene quello della spalla vicina
+arco[:bordo] = np.median(arco[bordo:3 * bordo])
+arco[-bordo:] = np.median(arco[-3 * bordo:-bordo])
+alto[cj] = np.convolve(np.pad(arco, 5, mode="edge"), np.ones(11) / 11, mode="valid")
 # in fondo la fascia tricolore è un arco: curva liscia (4° grado) sui punti buoni, i fuori posto scartati
 x, y = TETA[cj], basso[cj]
 buoni = ~np.isnan(y)
@@ -119,8 +138,7 @@ for _ in range(3):
     buoni &= np.abs(np.nan_to_num(y) - np.polyval(c, x)) < 6
 basso[cj] = np.polyval(c, x)
 riga = np.arange(len(HE))[:, None]
-nera = in_nera[None, :] & (riga >= alto[None, :] - 1) & (riga <= basso[None, :] + 1)
-etichette = np.where(nera[..., None], g1, etichette)
+nera = in_nera[None, :] & (riga >= alto[None, :] - 2) & (riga <= basso[None, :] + 2)
 alfa = ((oro[:, None] | nera) * 255).astype(np.uint8)
 nitide = Image.fromarray(SRGB(etichette * CALDO)).filter(ImageFilter.UnsharpMask(2, 60, 2))  # le foto vere sono morbide
 Image.fromarray(np.dstack([np.asarray(nitide), alfa])).save("etichette.png", optimize=True)
@@ -179,7 +197,7 @@ Image.fromarray(SRGB(np.repeat(oroT[:, None, :], 8, 1))).save("tappo.png")
 json.dump({
     "etichetta": [0.40, -1.25], "tappo": TAPPO,
     # la salsa: un pezzo largo un quarto di giro e alto SALSA_H, che si ripete a specchio
-    "salsa": {"giri": 2, "alto": round(SALSA_H[0] - SALSA_H[1], 3)},
+    "salsa": {"giri": 2, "alto": round(SALSA_H[0] - SALSA_H[1], 3), "largo": round(tela.shape[1] / R, 3)},
     "vetro": VETRO, "dentro": DENTRO,
 }, open("modello.json", "w"), separators=(",", ":"))
 print("etichette", etichette.shape, "salsa", salsa.size, "tappo", oroT.shape)
