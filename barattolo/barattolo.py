@@ -1,18 +1,17 @@
-"""Barattolo 3D della salsa tartufata 130 g.
-Etichette e salsa dalle tre foto vere del vasetto (provvisorie/salsa-tartufata-130-1/2/3: fronte, lato destro, lato
-sinistro), raddrizzate con la fotocamera di ogni scatto (camera.py): le righe restano dritte anche se le foto sono
-prese da vicino. La scena è la foto modificata (definitive/salsa-tartufata-foto-1): tappo, collo, fondo e riflessi
-sono uguali tutto intorno, e girando il barattolo restano come nella foto; girano solo salsa ed etichette, che nel 3D
-coprono il corpo del barattolo della foto.
+"""Barattolo 3D della salsa tartufata 130 g: tutto il barattolo, tappo compreso, da girare come si vuole.
+Etichette, salsa e tappo dalle tre foto vere del vasetto (provvisorie/salsa-tartufata-130-1/2/3: fronte, lato destro,
+lato sinistro), raddrizzate con la fotocamera di ogni scatto (camera.py): le righe restano dritte anche se le foto
+sono prese da vicino. La luce dipinta nelle foto si toglie: nel 3D a illuminare ci pensano le luci, così il barattolo
+non sembra una figurina.
 Misure in raggi del barattolo; h = 0 sul bordo di sopra dell'etichetta dorata, in su positivo.
-Scrive accanto a sé: etichette.png, salsa.jpg, modello.json.
+Scrive accanto a sé: etichette.png, salsa.jpg, tappo.png, modello.json.
 Da lanciare dalla cartella barattolo/: python barattolo.py"""
 import json
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 from camera import Posa
 
-VERE = "../../wild-italy/assets/img/provvisorie/salsa-tartufata-130-"
+VERE = "../../wilditaly/assets/img/provvisorie/salsa-tartufata-130-"
 F, C = 2100, (1024, 1024)  # focale e centro delle foto vere, in pixel
 # pose delle foto vere (camera.adatta sui bordi dell'etichetta dorata e del riquadro del logo; errore medio 1 px)
 POSE = {1: [-0.42273, 0.00102, 4.10782, 0.21989, 0.00192, 1.06919, -0.03356, -0.40738],
@@ -22,7 +21,17 @@ PHI = {1: 0, 2: 90, 3: -85}  # da che angolo guarda ogni foto: misurato sui lati
 H = 1.085  # altezza dell'etichetta dorata
 NERA = (-38.2, 48.5)  # lati dell'etichetta nera, col bordino d'oro
 PX, R = 6, 344  # 6 pixel per grado; un raggio = 344 pixel, così i pixel sono quadrati
-CORPO = (-1.28, 0.62)  # la parte del barattolo che gira: dal fondo della salsa (sotto c'è il piede di vetro) alla spalla
+LIVELLO = 0.55  # dove arriva la salsa dentro il vetro (il filo d'olio, misurato sulla foto 1)
+# Sagoma misurata sulla foto 1 con la sua posa: [h, raggio]. Vetro dal bordo della bocca (sotto il tappo) al piede;
+# il collo ha la filettatura, poi la spalla si apre sul corpo. Dentro: la salsa, un po' più stretta (il vetro è
+# spesso circa 0,05 raggi).
+VETRO = [[1.00, 0.86], [0.97, 0.92], [0.93, 0.92],  # la bocca, sotto il tappo
+         [0.90, 0.885], [0.86, 0.915], [0.82, 0.885], [0.78, 0.915], [0.74, 0.885],  # la filettatura
+         [0.72, 0.905], [0.66, 0.925], [0.58, 0.955], [0.50, 0.985], [0.44, 1.0],  # la spalla
+         [-1.50, 1.0], [-1.58, 0.975], [-1.64, 0.93], [-1.68, 0.86], [-1.70, 0.76]]  # il corpo e il piede
+DENTRO = [[LIVELLO, 0.915], [0.50, 0.935], [0.44, 0.95], [-1.50, 0.95], [-1.57, 0.92], [-1.62, 0.87],
+          [-1.65, 0.80], [-1.66, 0.70]]
+TAPPO = {"su": 1.30, "giu": 0.94, "r": 0.985, "smusso": 0.08}  # il tappo d'oro, largo quasi quanto il corpo
 CALDO = np.array([1.154, 1.269, 1.443])  # bilanciamento: il bianco del logo come nella scena (le foto vere hanno luce gialla)
 
 LIN = lambda c: (np.asarray(c, float) / 255) ** 2.2
@@ -72,7 +81,7 @@ for n in (3, 2):
 # riga per riga (così restano i fili d'oro in cima e in fondo)
 p3 = liscio(TETA, -158, -152) * (1 - liscio(TETA, NERA[0] + 1, NERA[0] + 3))  # oltre -155° la vede di sbieco
 p2 = liscio(TETA, NERA[1] - 3, NERA[1] - 1) * (1 - liscio(TETA, 160, 165))
-fondo = np.percentile(dor[3][:, (TETA > -130) & (TETA < -60)], 70, axis=1)
+fondo = np.percentile(dor[3][:, (TETA > -130) & (TETA < -60)], 55, axis=1)
 fili = (HE > -0.035) | (HE < -H + 0.035)
 fondo[~fili] = np.median(fondo[oro & ~fili], 0)
 dietro = 1 - p3 - p2 - ((TETA > NERA[0]) & (TETA < NERA[1]))
@@ -113,40 +122,64 @@ riga = np.arange(len(HE))[:, None]
 nera = in_nera[None, :] & (riga >= alto[None, :] - 1) & (riga <= basso[None, :] + 1)
 etichette = np.where(nera[..., None], g1, etichette)
 alfa = ((oro[:, None] | nera) * 255).astype(np.uint8)
-from PIL import ImageFilter
 nitide = Image.fromarray(SRGB(etichette * CALDO)).filter(ImageFilter.UnsharpMask(2, 60, 2))  # le foto vere sono morbide
 Image.fromarray(np.dstack([np.asarray(nitide), alfa])).save("etichette.png", optimize=True)
 
-# --- salsa: dalla foto 5 della scena (definitive, di lato), solo salsa, niente scritte: la foto modificata va bene.
-# Sopra l'etichetta la fascia di salsa della foto è alta proprio quanto serve; sotto, righe da 945 a 1000 (più giù ci
-# sono i riflessi del fondo di vetro).
-# Una fascia di 120° che si ripete tre volte tutto intorno, con le due estremità sfumate l'una nell'altra (niente
-# cuciture a specchio). Colore portato a quello della salsa della foto 1.
-f5 = LIN(Image.open("../../wild-italy/assets/img/definitive/salsa-tartufata-foto-5.jpg").convert("RGB"))
-GS = 120
-TS = np.radians((np.arange((GS + 12) * PX) + 0.5) / PX - (GS + 12) / 2)
-HS = righe(CORPO[1], CORPO[0])
-sopra = HS > -0.5
-# riga della foto 5 per ogni altezza: sopra da 506 (h 0,62) a 667 (h 0); sotto da 940 (h -1,08) a 1030 (h -1,42)
-yf = np.where(sopra, 506 + (CORPO[1] - HS) * 260, np.clip(945 + (-1.08 - HS) * 265, 945, 1000))
-s = campiona(f5, (619 + 260 * np.sin(TS))[None, :].repeat(len(HS), 0),
-             yf[:, None] + 18 * np.cos(TS)[None, :])  # righe prese sui bordi: al centro scendono di 18 px
-lum = s.mean(2)
-for f in (sopra, ~sopra):  # via i riflessi verticali del vetro, fascia per fascia
-    s[f] /= (np.median(lum[f], 0) / np.median(lum[f]))[None, :, None]
-s = np.minimum(s, np.percentile(s, 97, axis=(0, 1)))
-n, k = GS * PX, 12 * PX  # sfuma i 12° in più dentro l'inizio: la fascia si chiude su se stessa
-a_ = np.linspace(0, 1, k)[None, :, None]
-s = np.concatenate([s[:, n:n + k] * (1 - a_) + s[:, :k] * a_, s[:, k:n]], 1)
-vista = s[(HS > 0.05) | (HS < -1.1)].reshape(-1, 3)
-s *= np.median(LIN(Image.open("scena.jpg").convert("RGB"))[1015:1050, 420:670].reshape(-1, 3), 0) / np.median(vista, 0)
-Image.fromarray(SRGB(s)).save("salsa.jpg", quality=90)
+# --- salsa: un pezzo di salsa vera, raddrizzato, che si ripete tutto intorno ---------------------------------------
+# La salsa non ha scritte né un verso, e srotolarla tutta intorno non conviene: attraverso il vetro curvo, ai bordi
+# si deforma e ci si specchia il negozio. Si prende invece il pezzo scoperto sopra l'etichetta, 45° da ogni foto di
+# lato: il 3D lo ripete a specchio due volte, con le giunzioni ai fianchi, e di fronte non si vede ripetere.
+# Della luce del negozio resta solo la grana: l'immagine si divide per se stessa sfocata, così i pezzi di tartufo e i
+# lampi d'olio restano e il riflesso largo se ne va. Il rilievo lo fa il 3D, con questa stessa immagine come bozza.
+SALSA_H = (0.48, 0.03)  # la fascia di salsa scoperta sopra l'etichetta dorata
+GRADI = 90  # quanti gradi da ogni foto: il pezzo è largo mezzo giro, e mezzo giro è quanto se ne vede
+
+
+def pezzo(n, mezzo):
+    posa = Posa(POSE[n], F, C)
+    t = np.radians(np.linspace(-mezzo, mezzo, int(2 * mezzo * R * np.pi / 180)))
+    h = np.linspace(*SALSA_H, int((SALSA_H[0] - SALSA_H[1]) * R))
+    P = posa.punto(*np.meshgrid(t, h))
+    xy = np.asarray(C, float) + F * P[..., :2] / P[..., 2:3]
+    return campiona(foto[n], xy[..., 0], xy[..., 1])
+
+
+def sfoca(a, r):
+    k = np.ones(2 * r + 1) / (2 * r + 1)
+    passa = lambda v: np.convolve(np.pad(v, r, mode="edge"), k, "valid")
+    for _ in range(3):
+        a = np.apply_along_axis(passa, 0, np.apply_along_axis(passa, 1, a))
+    return a
+
+
+sx, dx = pezzo(3, GRADI / 2 + 2), pezzo(2, GRADI / 2 + 2)  # 2° in più per lato, poi si tagliano: ai bordi è scura
+k = int(20 * R * np.pi / 180)  # 20° di sfumatura fra i due pezzi: la giunzione non si vede
+m = liscio(np.arange(k), 0, k - 1)[None, :, None]
+tela = np.concatenate([sx[:, :-k], sx[:, -k:] * (1 - m) + dx[:, :k] * m, dx[:, k:]], 1)
+taglio = int(2 * R * np.pi / 180)
+tela = tela[:, taglio:-taglio]
+grana = np.clip(tela / np.maximum(sfoca(tela, 80), 1e-4), 0, 2.2) ** 1.35  # via la luce larga, la grana si rinforza
+# il colore di riferimento è quello della salsa, non la media col vetro che ci si specchia sopra: 35° percentile
+salsa = Image.fromarray(SRGB(grana * np.percentile(tela, 28, axis=(0, 1)) * CALDO))
+salsa.filter(ImageFilter.UnsharpMask(3, 90, 2)).save("salsa.jpg", quality=94)  # le foto vere sono morbide
+
+# --- tappo: oro liscio tutto intorno, quindi basta la striscia dall'alto in basso, presa davanti nella foto 1 e
+# spianata (la luce del negozio se la rifà il 3D). Il tappo ha raggio TAPPO["r"], non 1: il punto si prende lì.
+strisce = []
+HT = righe(TAPPO["su"] - 0.005, TAPPO["giu"] + 0.005)
+posa1 = Posa(POSE[1], F, C)
+TT = np.radians(np.arange(-34, 35, 2.0))
+T2, H2 = np.meshgrid(TT, HT)
+P = (posa1.Q + H2[..., None] * posa1.A + TAPPO["r"] * (np.sin(T2)[..., None] * posa1.U + np.cos(T2)[..., None] * posa1.W))
+xy = np.asarray(C, float) + F * P[..., :2] / P[..., 2:3]
+oroT = np.median(campiona(foto[1], xy[..., 0], xy[..., 1]), 1)  # mediana sugli angoli: via i riflessi di sbieco
+oroT = oroT / np.median(oroT, 0) * LIN([196, 158, 78])  # oro medio, la luce la fanno le luci
+Image.fromarray(SRGB(np.repeat(oroT[:, None, :], 8, 1))).save("tappo.png")
 
 json.dump({
-    "corpo": CORPO, "etichetta": [0.40, -1.25], "salsa": {"gradi": GS},
-    # la scena: foto 1122 x 1402, presa in piano all'altezza della riga 745 (dove le righe del barattolo sono dritte;
-    # più in basso fanno il sorriso), focale 1650 px; barattolo al centro x 545,5, raggio 198,5 px, bordo di sopra
-    # dell'etichetta dorata alla riga 767
-    "scena": {"w": 1122, "h": 1402, "f": 1650, "cx": 561, "cy": 745, "x": 545.5, "r": 198.5, "y0": 767},
+    "etichetta": [0.40, -1.25], "tappo": TAPPO,
+    # la salsa: un pezzo largo un quarto di giro e alto SALSA_H, che si ripete a specchio
+    "salsa": {"giri": 2, "alto": round(SALSA_H[0] - SALSA_H[1], 3)},
+    "vetro": VETRO, "dentro": DENTRO,
 }, open("modello.json", "w"), separators=(",", ":"))
-print("etichette", etichette.shape, "salsa", s.shape)
+print("etichette", etichette.shape, "salsa", salsa.size, "tappo", oroT.shape)

@@ -1,33 +1,37 @@
 <!DOCTYPE html>
-<!-- Wild Italy · prova del barattolo 3D (salsa tartufata 130 g) che gira dentro la sua foto -->
+<!-- Wild Italy · prova del barattolo 3D (salsa tartufata 130 g): tutto il barattolo, da girare come si vuole.
+     Lo sfondo per ora non c'è: c'è una sfumatura calda, disegnata dentro il 3D (sfumatura() in
+     barattolo-3d.js). Quando arriva una foto va lì al suo posto, non dietro al canvas. -->
 <html lang="it">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Barattolo 3D · Wild Italy</title>
 <meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
 <style>
-  body{margin:0;background:#1b1510;color:#f6f0e4;font:13px/1.4 system-ui,sans-serif;min-height:100svh;
-    display:flex;flex-direction:column;align-items:center;justify-content:center}
-  /* la foto intera, grande quanto sta nello schermo; il 3D ci sta sopra, della stessa misura */
-  .scena{position:relative;width:min(100vw,calc(100svh * 1122 / 1402));aspect-ratio:1122/1402;
-    background:url(scena.jpg) center/100% 100%;cursor:grab}
-  .scena:active{cursor:grabbing}
-  .scena canvas{position:absolute;inset:0}
-  .nota{position:absolute;left:16px;right:16px;bottom:16px;margin:0;text-align:center;pointer-events:none;
-    text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  body{margin:0;background:#1b1510;color:#e8dcc6;font:13px/1.4 system-ui,sans-serif}
+  /* il fondo lo disegna il 3D (sfumatura calda): qui basta il colore giusto prima che si carichi */
+  .vista{height:100svh;cursor:grab;touch-action:none;background:#241c14}
+  .vista:active{cursor:grabbing}
+  .nota,.nome{position:fixed;left:16px;right:16px;margin:0;text-align:center;pointer-events:none}
+  .nota{top:20px;color:#b7a688}
+  .nome{bottom:24px;font:600 18px/1.2 Georgia,serif;color:#f1e6cf}
 </style>
 <script type="importmap">
-  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  } }
 </script>
 </head>
 <body>
-<div class="scena" data-3d role="img" aria-label="Salsa tartufata 130 g: trascina per girare il barattolo">
-  <p class="nota">Trascina per girare il barattolo</p>
-</div>
+<div class="vista" data-3d role="img" aria-label="Salsa tartufata 130 g in 3D: trascina per girare il barattolo"></div>
+<p class="nota">Trascina per girarlo · rotella o due dita per avvicinarti</p>
+<p class="nome">Salsa tartufata 130 g</p>
 <script type="module">
   import { monta } from "./barattolo-3d.js";
-  monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json(), "scena.jpg");
+  monta(document.querySelector("[data-3d]"), await (await fetch("modello.json")).json());
 </script>
 </body>
 </html>
