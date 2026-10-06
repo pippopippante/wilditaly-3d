@@ -1,3 +1,4 @@
+# Codice di Emanuele Parmegiani.
 """Salame 3D da una foto di lato (salame morbido spalmabile, foto.jpg).
 Scrive, accanto a sé:
 - buccia.jpg: la buccia srotolata, x lungo il salame, in verticale l'angolo attorno all'asse da +45° (sopra) a -45°

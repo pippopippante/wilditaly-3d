@@ -1,3 +1,4 @@
+# Codice di Emanuele Parmegiani.
 """Barattolo 3D della salsa tartufata 130 g: tutto il barattolo, tappo compreso, da girare come si vuole.
 Etichette, salsa e tappo dalle tre foto vere del vasetto (provvisorie/salsa-tartufata-130-1/2/3: fronte, lato destro,
 lato sinistro), raddrizzate con la fotocamera di ogni scatto (camera.py): le righe restano dritte anche se le foto

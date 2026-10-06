@@ -1,3 +1,4 @@
+# Codice di Emanuele Parmegiani.
 """Bordi di etichette e capsula su una foto: curvatura delle linee orizzontali e lati (anche storti).
 Si appoggia alle misure di misura.py (alto, basso, cx, profilo della foto di fronte)."""
 import numpy as np

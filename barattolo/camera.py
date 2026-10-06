@@ -1,3 +1,4 @@
+# Codice di Emanuele Parmegiani.
 """Da dove è scattata una foto del barattolo: fotocamera vera (prospettiva), barattolo = cilindro di raggio 1.
 Si misura sui due fili d'oro dell'etichetta, che sul vetro sono due cerchi orizzontali: la posa è quella che li
 proietta sopra i punti tracciati sulla foto. Con la posa, ogni punto del barattolo (angolo, altezza) ha il suo

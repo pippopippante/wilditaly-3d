@@ -1,4 +1,5 @@
 /* Wild Italy · il barattolo della salsa tartufata, tutto intero (misure e immagini da barattolo.py, in modello.json).
+   Codice di Emanuele Parmegiani.
    Gira tutto: tappo, collo, vetro, salsa. Niente foto dietro, niente pezzi fermi.
    Il vetro è un solido di rotazione; dentro c'è la salsa, un solido anche lei, con la sua superficie in cima: si
    vede attraverso la spalla quando si guarda un po' dall'alto. La grana della salsa fa anche da rilievo, così

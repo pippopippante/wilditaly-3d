@@ -1,4 +1,5 @@
 /* Wild Italy · salame 3D da una foto di lato (misure e immagini da salame.py, in modello.json).
+   Codice di Emanuele Parmegiani.
    Sagoma: solido di rotazione attorno all'asse del salame, misurato colonna per colonna sulla foto.
    Buccia: la fascia di fronte della foto, srotolata e senza la luce dello scatto, ripetuta a specchio tutto intorno.
    Cartellino: raddrizzato dalla foto, appeso davanti alla punta destra col suo spago.

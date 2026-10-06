@@ -1,3 +1,4 @@
+# Codice di Emanuele Parmegiani.
 """Sagoma della bottiglia riga per riga: il primo salto netto di colore entrando da sinistra e da destra.
 Lo sfondo ha sfumature larghe (vignettatura), il bordo del vetro è un salto stretto."""
 import sys

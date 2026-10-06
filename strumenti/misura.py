@@ -1,3 +1,4 @@
+# Codice di Emanuele Parmegiani.
 """Misure di una bottiglia da due foto (fronte e retro) su fondo neutro, per bottiglia-3d.js.
 Uso: python misura.py fronte.jpg retro.jpg"""
 import sys
